@@ -14,9 +14,7 @@ import { createSearchRoutes } from './routes/searchRoutes.js';
 
 const app = express();
 
-app.use(cors({
-  origin: process.env.CORS_ORIGIN
-}));
+app.use(cors('https://adaptaedu.vercel.app'));
 app.use(express.json());
 
 const mongo = new MongoService();
