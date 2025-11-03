@@ -22,7 +22,8 @@ const corsOptions = {
       'http://localhost:3000',
       'http://localhost:3001',
       'http://localhost:5173',
-      'http://localhost:5174'
+      'http://localhost:5174',
+      'http://localhost:8080'
     ];
     
     // Permite requisições sem origin (Postman, mobile apps, etc)
@@ -47,6 +48,9 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.use(express.json());
 
+// Handler explícito para preflight requests
+app.options('*', cors(corsOptions));
+
 const mongo = new MongoService();
 const firebase = new FirebaseService();
 const ai = new AIService();
@@ -57,8 +61,6 @@ console.log('✓ Conectado ao MongoDB');
 
 const vectorSearch = new VectorSearchService(mongo, ai);
 const textReconstructor = new TextReconstructor(mongo);
-
-app.use(cors());
 
 app.use('/api', createChatRoutes(vectorSearch, ai, conversationManager, mongo));
 app.use('/api', createDocumentRoutes(mongo, textReconstructor, vectorSearch));
