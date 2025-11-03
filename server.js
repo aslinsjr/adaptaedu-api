@@ -20,7 +20,7 @@ app.use(cors({
   methods: 'GET,POST,PUT,DELETE', // Métodos permitidos
   allowedHeaders: 'Content-Type,Authorization', // Cabeçalhos permitidos
   credentials: true, // Permite credenciais (cookies, etc.)
- ));
+}));
 
 const mongo = new MongoService();
 const firebase = new FirebaseService();
