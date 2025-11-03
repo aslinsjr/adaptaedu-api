@@ -59,6 +59,8 @@ console.log('✓ Conectado ao MongoDB');
 const vectorSearch = new VectorSearchService(mongo, ai);
 const textReconstructor = new TextReconstructor(mongo);
 
+app.use(cors());
+
 app.use('/api', createChatRoutes(vectorSearch, ai, conversationManager, mongo));
 app.use('/api', createDocumentRoutes(mongo, textReconstructor, vectorSearch));
 app.use('/api', createSearchRoutes(vectorSearch));
