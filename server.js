@@ -1,4 +1,4 @@
-// server.js (ajuste na importação)
+// server.js
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
@@ -14,8 +14,39 @@ import { createSearchRoutes } from './routes/searchRoutes.js';
 
 const app = express();
 
+// Configuração CORS completa
+const corsOptions = {
+  origin: function (origin, callback) {
+    const allowedOrigins = [
+      'https://adaptaedu.vercel.app',
+      'http://localhost:3000',
+      'http://localhost:3001',
+      'http://localhost:5173',
+      'http://localhost:5174',
+      'http://localhost:8080'
+    ];
+    
+    // Permite requisições sem origin (Postman, mobile apps, etc)
+    if (!origin) return callback(null, true);
+    
+    // Permite qualquer subdomínio do Vercel em preview/desenvolvimento
+    if (origin.includes('vercel.app')) return callback(null, true);
+    
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      callback(new Error('Origem não permitida pelo CORS'));
+    }
+  },
+  credentials: false,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  exposedHeaders: ['Content-Length', 'X-Request-Id'],
+  maxAge: 86400 // 24 horas de cache para preflight
+};
+
+app.use(cors(corsOptions));
 app.use(express.json());
-app.use(cors());
 
 const mongo = new MongoService();
 const firebase = new FirebaseService();
