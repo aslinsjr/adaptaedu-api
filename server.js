@@ -15,12 +15,6 @@ import { createSearchRoutes } from './routes/searchRoutes.js';
 const app = express();
 
 app.use(express.json());
-app.use(cors({
-  origin: ['https://adaptaedu.vercel.app'], // Lista de origens permitidas
-  methods: 'GET,POST,PUT,DELETE', // Métodos permitidos
-  allowedHeaders: 'Content-Type,Authorization', // Cabeçalhos permitidos
-  credentials: true, // Permite credenciais (cookies, etc.)
-}));
 
 const mongo = new MongoService();
 const firebase = new FirebaseService();
@@ -32,6 +26,8 @@ console.log('✓ Conectado ao MongoDB');
 
 const vectorSearch = new VectorSearchService(mongo, ai);
 const textReconstructor = new TextReconstructor(mongo);
+
+app.use(cors());
 
 app.use('/api', createChatRoutes(vectorSearch, ai, conversationManager, mongo));
 app.use('/api', createDocumentRoutes(mongo, textReconstructor, vectorSearch));
