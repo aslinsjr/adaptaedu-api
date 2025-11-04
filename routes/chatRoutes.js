@@ -5,7 +5,6 @@ import { DialogueManager } from '../services/dialogueManager.js';
 import { ContextAnalyzer } from '../services/contextAnalyzer.js';
 import { IntentDetector } from '../services/intentDetector.js';
 import { DiscoveryService } from '../services/discoveryService.js';
-import { OnboardingManager } from '../services/onboardingManager.js';
 
 function mapearTiposParaAmigavel(tipos) {
   const mapeamento = {
@@ -42,7 +41,6 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
   const contextAnalyzer = new ContextAnalyzer();
   const intentDetector = new IntentDetector();
   const discoveryService = new DiscoveryService(mongo);
-  const onboardingManager = new OnboardingManager(ai, discoveryService);
 
   router.post('/chat', async (req, res) => {
     try {
@@ -67,40 +65,13 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
         preferencias = conversationManager.getPreferencias(currentConversationId);
       }
 
-      // Verifica estado da conversa ANTES de adicionar mensagem
-      const isPrimeiraInteracao = conversationManager.isPrimeiraInteracao(currentConversationId);
-      const onboardingCompleto = conversationManager.isOnboardingCompleto(currentConversationId);
       const historico = conversationManager.getHistorico(currentConversationId, 5);
 
       // Detecta intenção
-      const deteccaoIntencao = intentDetector.detectar(mensagem, {
-        isPrimeiraInteracao: isPrimeiraInteracao && !onboardingCompleto,
-        historico
-      });
+      const deteccaoIntencao = intentDetector.detectar(mensagem, { historico });
 
       // Adiciona mensagem do usuário
       conversationManager.adicionarMensagem(currentConversationId, 'user', mensagem);
-
-      // ONBOARDING
-      if (deteccaoIntencao.intencao === 'onboarding') {
-        const onboarding = await onboardingManager.iniciarOnboarding(currentConversationId);
-
-        conversationManager.adicionarMensagem(
-          currentConversationId,
-          'assistant',
-          onboarding.mensagem,
-          [],
-          { tipo: 'onboarding', ...onboarding.dados_contexto }
-        );
-        conversationManager.marcarOnboardingCompleto(currentConversationId);
-
-        return res.json(ResponseFormatter.formatChatResponse(
-          currentConversationId,
-          onboarding.mensagem,
-          [],
-          { tipo: 'onboarding' }
-        ));
-      }
 
       // CASUAL
       if (deteccaoIntencao.intencao === 'casual') {

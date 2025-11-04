@@ -5,7 +5,6 @@ export class IntentDetector {
       CASUAL: 'casual',
       DESCOBERTA: 'descoberta',
       CONSULTA: 'consulta',
-      ONBOARDING: 'onboarding',
       PREFERENCIA: 'preferencia',
       INTERESSE_TOPICO: 'interesse_topico'
     };
@@ -38,16 +37,7 @@ export class IntentDetector {
   }
 
   detectar(mensagem, contexto = {}) {
-    const { isPrimeiraInteracao = false, historico = [] } = contexto;
-
-    if (isPrimeiraInteracao) {
-      return {
-        intencao: this.intencoes.ONBOARDING,
-        confianca: 1.0,
-        metadados: { razao: 'primeira_interacao' }
-      };
-    }
-
+    const { historico = [] } = contexto;
     const lower = mensagem.toLowerCase().trim();
 
     // Casual
