@@ -29,13 +29,17 @@ export class IntentDetector {
       /\b(já sei|conheço|domino|avançado|experiente)\b/i
     ];
 
+    // PADRÕES DE DESCOBERTA AMPLIADOS
     this.padroesDescoberta = [
       /\b(o que (você|voce) (pode|sabe|ensina|tem|conhece))\b/i,
       /\b(quais (assuntos|tópicos|topicos|materiais|temas|você tem))\b/i,
-      /\b(que materiais (tem|há|ha|existe|disponível))\b/i,
+      /\b(que (materias|matérias|assuntos|temas|tópicos) (você|vc) (pode|tem|sabe|ensina|explica))\b/i,
+      /\b(quais (materias|matérias) (você|vc) (pode|tem|sabe|ensina|explica))\b/i,
+      /\b(que (materiais|conteúdos) (tem|há|ha|existe|disponível))\b/i,
       /\b(mostre|liste|apresente).*(disponível|disponiveis|materiais|assuntos)\b/i,
       /\b(explore|conhecer|descobrir).*(materiais|conteúdos|conteudos)\b/i,
-      /\b(ensinar|aprender|estudar)\b.*\b(o que|quais)\b/i
+      /\b(ensinar|aprender|estudar)\b.*\b(o que|quais)\b/i,
+      /\b(pode|tem|ensina).*(materia|máteria|assunto|tópico)\b/i
     ];
 
     this.padroesContinuacao = [
@@ -99,15 +103,19 @@ export class IntentDetector {
 
     // CASUAL
     for (const padrao of this.padroesCasuais) {
-      if (padrao.test(lower)) {
+      if (padrao.test(lower Quartz)) {
         return { intencao: this.intencoes.CASUAL, confianca: 0.98, metadados: { razao: 'padrao_casual' } };
       }
     }
 
-    // DESCOBERTA
+    // DESCOBERTA — PRIORIZADA E AMPLIADA
     for (const padrao of this.padroesDescoberta) {
       if (padrao.test(lower)) {
-        return { intencao: this.intencoes.DESCOBERTA, confianca: 0.95, metadados: { razao: 'padrao_descoberta' } };
+        return { 
+          intencao: this.intencoes.DESCOBERTA, 
+          confianca: 0.96, 
+          metadados: { razao: 'padrao_descoberta_ampliado' } 
+        };
       }
     }
 
