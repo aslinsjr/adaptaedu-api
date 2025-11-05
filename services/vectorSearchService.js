@@ -8,12 +8,21 @@ export class VectorSearchService {
     const queryEmbedding = await this.ai.createEmbedding(query);
     
     const mongoFiltros = {};
+    
     if (filtros.tags && filtros.tags.length > 0) {
       mongoFiltros['metadados.tags'] = { $in: filtros.tags };
     }
-    if (filtros.tipo) {
+    
+    // Suporta filtro de múltiplos tipos (quando usuário pede tipo específico)
+    if (filtros.tiposSolicitados && filtros.tiposSolicitados.length > 0) {
+      mongoFiltros['metadados.tipo'] = { 
+        $regex: filtros.tiposSolicitados.join('|'), 
+        $options: 'i' 
+      };
+    } else if (filtros.tipo) {
       mongoFiltros['metadados.tipo'] = filtros.tipo;
     }
+    
     if (filtros.fonte) {
       mongoFiltros['metadados.fonte'] = { $regex: filtros.fonte, $options: 'i' };
     }

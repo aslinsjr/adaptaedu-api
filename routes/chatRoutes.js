@@ -227,8 +227,15 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
         preferencias = conversationManager.getPreferencias(currentConversationId);
       }
 
+      // Detecta se usuário solicita tipo específico de mídia
+      const tipoMidiaSolicitado = dialogueManager.detectarTipoMidiaSolicitado(mensagem);
+
       const filtros = {};
-      if (preferencias.tiposMaterialPreferidos?.length > 0) {
+      
+      // Prioriza tipo de mídia solicitado explicitamente
+      if (tipoMidiaSolicitado) {
+        filtros.tiposSolicitados = tipoMidiaSolicitado.filtros;
+      } else if (preferencias.tiposMaterialPreferidos?.length > 0) {
         filtros.tipo = preferencias.tiposMaterialPreferidos[0];
       }
 
@@ -256,7 +263,12 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
         const topicosExtraidos = intentDetector.extrairTopicoDaMensagem(queryBusca);
         const termosPesquisados = topicosExtraidos.join(', ');
         
-        const sugestaoContexto = `INSTRUÇÃO CRÍTICA: Você NÃO possui materiais didáticos sobre "${termosPesquisados || mensagem}".
+        let mensagemTipo = '';
+        if (tipoMidiaSolicitado) {
+          mensagemTipo = `do tipo "${tipoMidiaSolicitado.tipo}" `;
+        }
+        
+        const sugestaoContexto = `INSTRUÇÃO CRÍTICA: Você NÃO possui materiais didáticos ${mensagemTipo}sobre "${termosPesquisados || mensagem}".
 
 PROIBIDO:
 - Responder com seu conhecimento próprio
@@ -265,9 +277,9 @@ PROIBIDO:
 - Ensinar sobre o assunto
 
 OBRIGATÓRIO:
-- Informar que não há material disponível sobre este tópico específico
+- Informar que não há material ${mensagemTipo}disponível sobre este tópico
 - Ser direto e honesto
-- Sugerir que o usuário explore outros tópicos disponíveis perguntando "o que você pode me ensinar"
+- Sugerir que o usuário explore outros tópicos ou tipos de material perguntando "o que você pode me ensinar"
 
 Responda de forma breve e natural.`;
 
@@ -311,8 +323,12 @@ Responda de forma breve e natural.`;
         maxFragmentos
       );
 
-      // 6. Análise de relevância
-      const analiseRelevancia = contextAnalyzer.analisarRelevancia(fragmentosFinais, 0.65);
+      // 6. Análise de relevância - threshold mais baixo para tipo específico
+      const thresholdRelevancia = tipoMidiaSolicitado ? 0.40 : 0.65;
+      const analiseRelevancia = contextAnalyzer.analisarRelevancia(
+        fragmentosFinais, 
+        thresholdRelevancia
+      );
 
       if (!analiseRelevancia.temConteudoRelevante) {
         const topicosExtraidos = intentDetector.extrairTopicoDaMensagem(queryBusca);
