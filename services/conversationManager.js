@@ -1,13 +1,16 @@
 // services/conversationManager.js
 import { v4 as uuidv4 } from 'uuid';
+import { ConversationContext } from './conversationContext.js';
 
 export class ConversationManager {
   constructor() {
     this.conversations = new Map();
+    this.contextos = new Map();
   }
 
   criarConversa(preferencias = null) {
     const conversationId = uuidv4();
+    
     this.conversations.set(conversationId, {
       id: conversationId,
       mensagens: [],
@@ -20,10 +23,14 @@ export class ConversationManager {
       estado: 'novo',
       onboardingCompleto: false,
       documentos_apresentados: [],
-      materiais_pendentes: null, // { opcoes: [], contexto: {} }
+      materiais_pendentes: null,
       criado_em: new Date(),
       atualizado_em: new Date()
     });
+
+    // Criar contexto conversacional
+    this.contextos.set(conversationId, new ConversationContext());
+    
     return conversationId;
   }
 
@@ -40,22 +47,89 @@ export class ConversationManager {
       content,
       timestamp: new Date(),
       fontes: role === 'assistant' ? fontes : undefined,
-      metadata: metadata || {}
+      metadata: { ...metadata }
     };
 
     conversa.mensagens.push(mensagem);
     conversa.atualizado_em = new Date();
 
-    // Marca se última resposta foi apresentação
-    if (role === 'assistant' && metadata.foi_apresentacao) {
-      conversa.ultima_foi_apresentacao = true;
+    // Atualizar estado baseado no tipo de mensagem
+    if (role === 'assistant') {
+      if (metadata.tipo === 'lista_materiais') {
+        conversa.estado = 'aguardando_escolha';
+      } else if (metadata.tipo === 'engajamento_topico') {
+        conversa.estado = 'aguardando_especificacao';
+      } else {
+        conversa.estado = 'ativo';
+      }
+      
+      conversa.ultima_foi_apresentacao = metadata.foi_apresentacao || false;
       conversa.tags_apresentacao = metadata.tags_apresentacao || [];
-    } else if (role === 'assistant') {
-      conversa.ultima_foi_apresentacao = false;
-      conversa.tags_apresentacao = [];
     }
 
     return conversationId;
+  }
+
+  // NOVO: Obter contexto completo para detecção de intenções
+  getContextoCompleto(conversationId) {
+    const conversa = this.conversations.get(conversationId);
+    const contexto = this.contextos.get(conversationId);
+    
+    if (!conversa) {
+      return { 
+        historico: [], 
+        contextoConversacional: null, 
+        preferencias: null, 
+        estado: 'novo',
+        documentosApresentados: []
+      };
+    }
+
+    return {
+      historico: this.getHistoricoRico(conversationId, 8),
+      contextoConversacional: contexto ? contexto.getContextoParaDetecao() : null,
+      preferencias: conversa.preferencias,
+      estado: conversa.estado,
+      documentosApresentados: conversa.documentos_apresentados
+    };
+  }
+
+  // Histórico enriquecido com metadados para análise contextual
+  getHistoricoRico(conversationId, limite = 8) {
+    const conversa = this.conversations.get(conversationId);
+    if (!conversa) return [];
+    
+    return conversa.mensagens.slice(-limite).map(m => ({
+      role: m.role,
+      content: m.content,
+      timestamp: m.timestamp,
+      metadata: m.metadata || {},
+      fontes: m.fontes || [],
+      // Incluir intenção detectada se disponível
+      intencaoDetectada: m.metadata?.intencaoDetectada
+    }));
+  }
+
+  // NOVO: Atualizar contexto conversacional após interação
+  atualizarContextoConversacional(conversationId, mensagemUsuario, respostaAssistant, intencao, metadata = {}) {
+    let contexto = this.contextos.get(conversationId);
+    if (!contexto) {
+      contexto = new ConversationContext();
+      this.contextos.set(conversationId, contexto);
+    }
+    
+    contexto.atualizarContexto(mensagemUsuario, respostaAssistant, intencao, metadata);
+    
+    // Atualizar estado da conversa baseado no contexto
+    const conversa = this.conversations.get(conversationId);
+    if (conversa) {
+      if (contexto.aguardandoResposta) {
+        conversa.estado = `aguardando_${contexto.aguardandoResposta}`;
+      } else {
+        conversa.estado = 'ativo';
+      }
+      conversa.atualizado_em = new Date();
+    }
   }
 
   atualizarPreferencias(conversationId, novasPreferencias) {
@@ -126,18 +200,24 @@ export class ConversationManager {
     
     if (!conversa) return null;
 
+    const contexto = this.contextos.get(conversationId);
+
     return {
       conversationId: conversa.id,
       mensagens: conversa.mensagens,
       preferencias: conversa.preferencias,
       estado: conversa.estado,
       onboardingCompleto: conversa.onboardingCompleto,
+      documentos_apresentados: conversa.documentos_apresentados,
+      materiais_pendentes: conversa.materiais_pendentes,
       criado_em: conversa.criado_em,
-      atualizado_em: conversa.atualizado_em
+      atualizado_em: conversa.atualizado_em,
+      contextoConversacional: contexto ? contexto.getContextoParaDetecao() : null
     };
   }
 
   limparConversa(conversationId) {
+    this.contextos.delete(conversationId);
     return this.conversations.delete(conversationId);
   }
 
@@ -149,6 +229,7 @@ export class ConversationManager {
       const idade = agora - conversa.atualizado_em;
       if (idade > limiteIdade) {
         this.conversations.delete(id);
+        this.contextos.delete(id);
       }
     }
   }
@@ -173,6 +254,12 @@ export class ConversationManager {
       }
     }
     
+    // Atualizar contexto com documentos mencionados
+    const contexto = this.contextos.get(conversationId);
+    if (contexto) {
+      contexto.documentosMencionados = [...new Set([...contexto.documentosMencionados, ...arquivos_urls])];
+    }
+    
     conversa.atualizado_em = new Date();
   }
 
@@ -187,6 +274,13 @@ export class ConversationManager {
     };
     conversa.estado = 'aguardando_escolha';
     conversa.atualizado_em = new Date();
+
+    // Atualizar contexto
+    const contextoConv = this.contextos.get(conversationId);
+    if (contextoConv) {
+      contextoConv.aguardandoResposta = 'escolha_material';
+      contextoConv.fluxoAtivo = 'escolha';
+    }
   }
 
   getMateriaisPendentes(conversationId) {
@@ -201,6 +295,13 @@ export class ConversationManager {
     conversa.materiais_pendentes = null;
     conversa.estado = 'ativo';
     conversa.atualizado_em = new Date();
+
+    // Limpar contexto de espera
+    const contexto = this.contextos.get(conversationId);
+    if (contexto) {
+      contexto.aguardandoResposta = null;
+      contexto.fluxoAtivo = 'conversa';
+    }
   }
 
   ultimaRespostaFoiApresentacao(conversationId) {
@@ -211,5 +312,63 @@ export class ConversationManager {
   getTagsApresentacao(conversationId) {
     const conversa = this.conversations.get(conversationId);
     return conversa?.tags_apresentacao || [];
+  }
+
+  // NOVO: Método para debug - visualizar contexto
+  debugContexto(conversationId) {
+    const conversa = this.conversations.get(conversationId);
+    const contexto = this.contextos.get(conversationId);
+    
+    return {
+      conversa: conversa ? {
+        id: conversa.id,
+        estado: conversa.estado,
+        totalMensagens: conversa.mensagens.length,
+        documentosApresentados: conversa.documentos_apresentados.length,
+        temMateriaisPendentes: !!conversa.materiais_pendentes,
+        atualizado_em: conversa.atualizado_em
+      } : null,
+      contexto: contexto ? contexto.getContextoParaDetecao() : null
+    };
+  }
+
+  // NOVO: Reiniciar contexto (útil para mudanças bruscas de tópico)
+  reiniciarContexto(conversationId) {
+    const contexto = this.contextos.get(conversationId);
+    if (contexto) {
+      contexto.limparContexto();
+    }
+    
+    const conversa = this.conversations.get(conversationId);
+    if (conversa) {
+      conversa.estado = 'ativo';
+      conversa.atualizado_em = new Date();
+    }
+  }
+
+  // NOVO: Estatísticas da conversa
+  getEstatisticasConversa(conversationId) {
+    const conversa = this.conversations.get(conversationId);
+    if (!conversa) return null;
+
+    const mensagensUser = conversa.mensagens.filter(m => m.role === 'user').length;
+    const mensagensAssistant = conversa.mensagens.filter(m => m.role === 'assistant').length;
+    const tiposResposta = {};
+    
+    conversa.mensagens.forEach(m => {
+      if (m.role === 'assistant' && m.metadata?.tipo) {
+        tiposResposta[m.metadata.tipo] = (tiposResposta[m.metadata.tipo] || 0) + 1;
+      }
+    });
+
+    return {
+      totalMensagens: conversa.mensagens.length,
+      mensagensUser,
+      mensagensAssistant,
+      documentosUtilizados: conversa.documentos_apresentados.length,
+      tiposResposta,
+      duracao: new Date() - conversa.criado_em,
+      idade: new Date() - conversa.atualizado_em
+    };
   }
 }
