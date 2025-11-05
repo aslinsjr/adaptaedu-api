@@ -138,22 +138,41 @@ INSTRUÇÕES CRÍTICAS:
 4. NÃO use bullets (-) ou listas numeradas
 5. Escreva em um fluxo natural, como uma conversa
 6. NUNCA comece com saudações
+7. SEMPRE mencione a localização: "[Nome do documento, página X]"
 
-Exemplo bom: "Tenho os seguintes materiais sobre programação: assista este vídeo sobre âncoras HTML, ou se preferir leia estes textos sobre desenvolvimento PHP e HTML5."
+Exemplo bom: "Sobre HTML, tenho: assista este vídeo sobre Âncoras HTML [Capítulo do Livro, página 3], ou se preferir leia estes textos sobre desenvolvimento PHP [Manual PHP, página 15] e HTML5 [Guia Web, página 8]."
 
 Exemplo ruim: "Olá! Tenho sim! - Assista este vídeo... - Leia este texto..."
 
-MATERIAIS DISPONÍVEIS:
+MATERIAIS DISPONÍVEIS (ordenados por relevância):
 ${fragmentos.map((f, i) => {
+  const loc = f.metadados.localizacao;
+  const ctx = f.metadados.contexto_documento;
   const tipo = f.metadados.tipo.toLowerCase();
   const tipoAmigavel = tipo.includes('pdf') || tipo.includes('doc') || tipo.includes('txt') ? 'texto' : 
                       tipo.includes('video') || tipo.includes('mp4') ? 'vídeo' : 
                       tipo.includes('image') || tipo.includes('png') || tipo.includes('jpg') ? 'imagem' : tipo;
-  return `[Material ${i + 1} - ${tipoAmigavel}: ${f.metadados.arquivo_nome}]
-${f.conteudo}`;
-}).join('\n---\n')}
+  
+  return `
+━━━ Material ${i + 1} - ${tipoAmigavel} ━━━
+📄 Documento: ${f.metadados.arquivo_nome}
+📍 Localização: Página ${loc?.pagina || 'N/A'}${loc?.secao ? `, Seção ${loc.secao}` : ''}
+📊 Relevância: ${((f.score_final || f.score) * 100).toFixed(1)}%
+🔢 Posição: ${ctx?.posicao_percentual}% do documento
+${f.metadados.mesclado ? `📑 Conteúdo mesclado de ${f.metadados.chunks_originais} fragmentos` : ''}
+📝 Conteúdo:
+${f.conteudo}
+━━━━━━━━━━━━━━━━
+`;
+}).join('\n')}
 
-Responda retomando o tópico da pergunta.`;
+INSTRUÇÕES DE CITAÇÃO:
+- Ao mencionar informações, SEMPRE cite: "[Nome do documento, pág. X]"
+- Se houver múltiplas fontes, indique todas
+- Priorize materiais com maior relevância
+- Se informações conflitantes, mencione ambas com suas fontes
+
+Responda retomando o tópico da pergunta de forma natural e conversacional.`;
 
     const temperatura = preferencias?.profundidade === 'basico' ? 0.5 : 
                        preferencias?.profundidade === 'avancado' ? 0.8 : 0.7;

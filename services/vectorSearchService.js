@@ -33,7 +33,21 @@ export class VectorSearchService {
         arquivo_url: r.metadados.arquivo_url,
         arquivo_nome: r.metadados.arquivo_nome,
         chunk_index: r.metadados.chunk_index,
-        tags: r.metadados.tags || []
+        total_chunks: r.metadados.total_chunks,
+        tags: r.metadados.tags || [],
+        titulo: r.metadados.titulo,
+        localizacao: {
+          pagina: r.metadados.localizacao?.pagina,
+          secao: r.metadados.localizacao?.secao,
+          linha: r.metadados.localizacao?.linha
+        },
+        contexto_documento: {
+          chunk_index: r.metadados.chunk_index,
+          total_chunks: r.metadados.total_chunks,
+          posicao_percentual: r.metadados.total_chunks > 0 
+            ? ((r.metadados.chunk_index / r.metadados.total_chunks) * 100).toFixed(1)
+            : '0.0'
+        }
       },
       score: r.score
     }));
@@ -48,17 +62,29 @@ export class VectorSearchService {
       chunk_atual: {
         chunk_id: contexto.chunk_atual._id.toString(),
         texto: contexto.chunk_atual.conteudo,
-        metadata: contexto.chunk_atual.metadados
+        metadata: {
+          ...contexto.chunk_atual.metadados,
+          localizacao: {
+            pagina: contexto.chunk_atual.metadados.localizacao?.pagina,
+            secao: contexto.chunk_atual.metadados.localizacao?.secao
+          }
+        }
       },
       contexto_anterior: contexto.contexto_anterior ? {
         chunk_id: contexto.contexto_anterior._id.toString(),
         texto: contexto.contexto_anterior.conteudo,
-        chunk_index: contexto.contexto_anterior.metadados.chunk_index
+        chunk_index: contexto.contexto_anterior.metadados.chunk_index,
+        localizacao: {
+          pagina: contexto.contexto_anterior.metadados.localizacao?.pagina
+        }
       } : null,
       contexto_posterior: contexto.contexto_posterior ? {
         chunk_id: contexto.contexto_posterior._id.toString(),
         texto: contexto.contexto_posterior.conteudo,
-        chunk_index: contexto.contexto_posterior.metadados.chunk_index
+        chunk_index: contexto.contexto_posterior.metadados.chunk_index,
+        localizacao: {
+          pagina: contexto.contexto_posterior.metadados.localizacao?.pagina
+        }
       } : null,
       documento_pai: {
         nome: contexto.chunk_atual.metadados.arquivo_nome,

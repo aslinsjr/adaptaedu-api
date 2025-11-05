@@ -5,6 +5,7 @@ import { DialogueManager } from '../services/dialogueManager.js';
 import { ContextAnalyzer } from '../services/contextAnalyzer.js';
 import { IntentDetector } from '../services/intentDetector.js';
 import { DiscoveryService } from '../services/discoveryService.js';
+import { SmartRanker } from '../services/smartRanker.js';
 
 function mapearTiposParaAmigavel(tipos) {
   const mapeamento = {
@@ -41,6 +42,7 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
   const contextAnalyzer = new ContextAnalyzer();
   const intentDetector = new IntentDetector();
   const discoveryService = new DiscoveryService(mongo);
+  const smartRanker = new SmartRanker();
 
   router.post('/chat', async (req, res) => {
     try {
@@ -205,7 +207,7 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
         ));
       }
 
-      // CONSULTA
+      // CONSULTA COM SMART RANKER
       const preferenciasImplicitas = dialogueManager.detectarPreferenciaImplicita(mensagem);
       if (preferenciasImplicitas) {
         conversationManager.atualizarPreferencias(currentConversationId, preferenciasImplicitas);
@@ -218,15 +220,15 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
       }
 
       const maxFragmentos = preferencias.limiteFragmentos || 5;
-      const fragmentos = await vectorSearch.buscarFragmentosRelevantes(
+
+      // 1. Busca inicial com mais resultados
+      const fragmentosBrutos = await vectorSearch.buscarFragmentosRelevantes(
         mensagem,
         filtros,
-        maxFragmentos
+        maxFragmentos * 3 // Busca 3x mais para ter opções
       );
 
-      const analiseRelevancia = contextAnalyzer.analisarRelevancia(fragmentos, 0.65);
-
-      if (!analiseRelevancia.temConteudoRelevante) {
+      if (!fragmentosBrutos || fragmentosBrutos.length === 0) {
         const topicosExtraidos = intentDetector.extrairTopicoDaMensagem(mensagem);
         const sugestaoContexto = topicosExtraidos.length > 0
           ? `O usuário perguntou sobre: ${topicosExtraidos.join(', ')}. Não há material relevante. Seja honesto e sugira explorar tópicos disponíveis.`
@@ -250,6 +252,56 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
         ));
       }
 
+      // 2. Ranking inteligente
+      const fragmentosRankeados = smartRanker.rankearPorQualidade(
+        fragmentosBrutos,
+        mensagem
+      );
+
+      // 3. Agrupamento de contíguos
+      const fragmentosAgrupados = smartRanker.agruparChunksContiguos(
+        fragmentosRankeados
+      );
+
+      // 4. Deduplicação
+      const fragmentosDedupados = smartRanker.deduplicarConteudo(
+        fragmentosAgrupados
+      );
+
+      // 5. Seleção final
+      const fragmentosFinais = smartRanker.selecionarMelhores(
+        fragmentosDedupados,
+        maxFragmentos
+      );
+
+      // 6. Análise de relevância
+      const analiseRelevancia = contextAnalyzer.analisarRelevancia(fragmentosFinais, 0.65);
+
+      if (!analiseRelevancia.temConteudoRelevante) {
+        const topicosExtraidos = intentDetector.extrairTopicoDaMensagem(mensagem);
+        const sugestaoContexto = topicosExtraidos.length > 0
+          ? `O usuário perguntou sobre: ${topicosExtraidos.join(', ')}. Não há material suficientemente relevante. Seja honesto e sugira explorar tópicos disponíveis.`
+          : 'Não há material relevante sobre isso. Sugira ao usuário explorar os tópicos disponíveis.';
+
+        const resposta = await ai.conversarLivremente(mensagem, historico, sugestaoContexto);
+
+        conversationManager.adicionarMensagem(
+          currentConversationId,
+          'assistant',
+          resposta,
+          [],
+          { tipo: 'sem_resultado', topicos_buscados: topicosExtraidos }
+        );
+
+        return res.json(ResponseFormatter.formatChatResponse(
+          currentConversationId,
+          resposta,
+          [],
+          { tipo: 'sem_resultado' }
+        ));
+      }
+
+      // 7. Resposta com contexto enriquecido
       const resposta = await ai.responderComContexto(
         mensagem,
         historico,
@@ -272,7 +324,10 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
         { 
           tipo: 'consulta',
           scoreMaximo: analiseRelevancia.scoreMaximo,
-          confianca: deteccaoIntencao.confianca
+          confianca: deteccaoIntencao.confianca,
+          diversidade: analiseRelevancia.diversidadeDocumentos,
+          total_processados: fragmentosBrutos.length,
+          selecionados: fragmentosFinais.length
         }
       ));
 
