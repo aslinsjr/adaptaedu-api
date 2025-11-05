@@ -254,9 +254,22 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
 
       if (!fragmentosBrutos || fragmentosBrutos.length === 0) {
         const topicosExtraidos = intentDetector.extrairTopicoDaMensagem(queryBusca);
-        const sugestaoContexto = topicosExtraidos.length > 0
-          ? `O usuário perguntou sobre: ${topicosExtraidos.join(', ')}. Não há material relevante. Seja honesto e sugira explorar tópicos disponíveis.`
-          : 'Não há material sobre isso. Sugira ao usuário explorar os tópicos disponíveis.';
+        const termosPesquisados = topicosExtraidos.join(', ');
+        
+        const sugestaoContexto = `INSTRUÇÃO CRÍTICA: Você NÃO possui materiais didáticos sobre "${termosPesquisados || mensagem}".
+
+PROIBIDO:
+- Responder com seu conhecimento próprio
+- Explicar o conceito
+- Dar exemplos do seu conhecimento
+- Ensinar sobre o assunto
+
+OBRIGATÓRIO:
+- Informar que não há material disponível sobre este tópico específico
+- Ser direto e honesto
+- Sugerir que o usuário explore outros tópicos disponíveis perguntando "o que você pode me ensinar"
+
+Responda de forma breve e natural.`;
 
         const resposta = await ai.conversarLivremente(mensagem, historico, sugestaoContexto);
 
@@ -303,9 +316,22 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
 
       if (!analiseRelevancia.temConteudoRelevante) {
         const topicosExtraidos = intentDetector.extrairTopicoDaMensagem(queryBusca);
-        const sugestaoContexto = topicosExtraidos.length > 0
-          ? `O usuário perguntou sobre: ${topicosExtraidos.join(', ')}. Não há material suficientemente relevante. Seja honesto e sugira explorar tópicos disponíveis.`
-          : 'Não há material relevante sobre isso. Sugira ao usuário explorar os tópicos disponíveis.';
+        const termosPesquisados = topicosExtraidos.join(', ');
+        
+        const sugestaoContexto = `INSTRUÇÃO CRÍTICA: Você NÃO possui materiais didáticos relevantes sobre "${termosPesquisados || mensagem}".
+
+PROIBIDO:
+- Responder com seu conhecimento próprio
+- Explicar o conceito
+- Dar exemplos do seu conhecimento
+- Ensinar sobre o assunto
+
+OBRIGATÓRIO:
+- Informar que não há material suficientemente relevante sobre este tópico
+- Ser direto e honesto
+- Sugerir que o usuário explore outros tópicos disponíveis perguntando "o que você pode me ensinar"
+
+Responda de forma breve e natural.`;
 
         const resposta = await ai.conversarLivremente(mensagem, historico, sugestaoContexto);
 
