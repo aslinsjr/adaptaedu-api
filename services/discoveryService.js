@@ -5,30 +5,39 @@ export class DiscoveryService {
   }
 
   async listarTopicosDisponiveis() {
-    const topicos = await this.mongo.getAvailableTopics();
-    const tiposMaterial = await this.mongo.getDocumentsByType();
-
-    return {
-      topicos: topicos.map(t => ({
-        nome: t.topico,
-        tipos_disponiveis: t.tipos,
-        quantidade: t.fragmentos,
-        documentos: t.documentos.slice(0, 3)
-      })),
-      resumo: {
-        total_topicos: topicos.length,
-        tipos_material: tiposMaterial.map(t => ({
-          tipo: t.tipo,
-          quantidade: t.total
-        })),
-        total_documentos: tiposMaterial.reduce((sum, t) => sum + t.total, 0)
+    const pipeline = [
+      {
+        $match: {
+          'metadados.tags': { $exists: true, $ne: [] }
+          // Evite filtros diretos sem $eq
+        }
+      },
+      { $unwind: '$metadados.tags' },
+      {
+        $group: {
+          _id: '$metadados.tags',
+          fragmentos: { $sum: 1 },
+          tipos: { $addToSet: '$metadados.tipo' },
+          documentos: { $addToSet: '$metadados.arquivo_nome' }
+        }
+      },
+      {
+        $project: {
+          topico: '$_id',
+          fragmentos: 1,
+          tipos: 1,
+          documentos: 1,
+          _id: 0
+        }
       }
-    };
+    ];
+
+    return await this.db.collection('chunks').aggregate(pipeline).toArray();
   }
 
   async buscarPorTopico(topico) {
     const topicos = await this.mongo.getAvailableTopics();
-    const topicoEncontrado = topicos.find(t => 
+    const topicoEncontrado = topicos.find(t =>
       t.topico.toLowerCase().includes(topico.toLowerCase())
     );
 
@@ -45,7 +54,7 @@ export class DiscoveryService {
   async verificarSeEhTopicoConhecido(termo) {
     const topicos = await this.mongo.getAvailableTopics();
     const termoLower = termo.toLowerCase();
-    
+
     const topicoEncontrado = topicos.find(t => {
       const topicoLower = t.topico.toLowerCase();
       return topicoLower.includes(termoLower) || termoLower.includes(topicoLower);
@@ -71,11 +80,11 @@ export class DiscoveryService {
 
     for (const topico of topicos) {
       const categoria = this.inferirCategoria(topico.nome);
-      
+
       if (!categorias.has(categoria)) {
         categorias.set(categoria, []);
       }
-      
+
       categorias.get(categoria).push(topico);
     }
 
@@ -88,7 +97,7 @@ export class DiscoveryService {
 
   inferirCategoria(topico) {
     const lower = topico.toLowerCase();
-    
+
     if (lower.match(/\b(programação|código|software|algoritmo|função)\b/)) {
       return 'Tecnologia';
     }
@@ -104,7 +113,7 @@ export class DiscoveryService {
     if (lower.match(/\b(inglês|português|espanhol|idioma|língua)\b/)) {
       return 'Idiomas';
     }
-    
+
     return 'Geral';
   }
 
