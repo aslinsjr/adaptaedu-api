@@ -639,7 +639,7 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
         }));
         
         const topico = intentDetector.extrairTopicoDaMensagem(queryBusca).join(' ') || 'este assunto';
-        const resposta = await ai.listarMateriaisParaEscolha(opcoes, topico, contextoCompleto.historico);
+        const resposta = await ai.apresentarMateriaisContextual(opcoes, contextoCompleto.historico);
         
         conversationManager.setMateriaisPendentes(currentConversationId, opcoes, { 
           mensagem_original: mensagem, 
