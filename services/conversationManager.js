@@ -19,7 +19,8 @@ export class ConversationManager {
       },
       estado: 'novo',
       onboardingCompleto: false,
-      documentos_apresentados: [], // Tracking de documentos já mostrados
+      documentos_apresentados: [],
+      materiais_pendentes: null, // { opcoes: [], contexto: {} }
       criado_em: new Date(),
       atualizado_em: new Date()
     });
@@ -163,6 +164,33 @@ export class ConversationManager {
       }
     }
     
+    conversa.atualizado_em = new Date();
+  }
+
+  setMateriaisPendentes(conversationId, opcoes, contexto = {}) {
+    const conversa = this.conversations.get(conversationId);
+    if (!conversa) return;
+
+    conversa.materiais_pendentes = {
+      opcoes,
+      contexto,
+      criado_em: new Date()
+    };
+    conversa.estado = 'aguardando_escolha';
+    conversa.atualizado_em = new Date();
+  }
+
+  getMateriaisPendentes(conversationId) {
+    const conversa = this.conversations.get(conversationId);
+    return conversa?.materiais_pendentes || null;
+  }
+
+  limparMateriaisPendentes(conversationId) {
+    const conversa = this.conversations.get(conversationId);
+    if (!conversa) return;
+
+    conversa.materiais_pendentes = null;
+    conversa.estado = 'ativo';
     conversa.atualizado_em = new Date();
   }
 }

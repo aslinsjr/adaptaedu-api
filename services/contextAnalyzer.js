@@ -305,4 +305,67 @@ export class ContextAnalyzer {
 
     return termosEncontrados.size / queryTermos.length;
   }
+
+  isConteudoApresentacao(fragmento) {
+    if (!fragmento || !fragmento.metadados) return false;
+
+    const nome = fragmento.metadados.arquivo_nome?.toLowerCase() || '';
+    const conteudo = fragmento.conteudo?.toLowerCase() || '';
+
+    // Verifica nome do arquivo
+    if (nome.includes('apresentação') || nome.includes('apresentacao') || 
+        nome.includes('sumário') || nome.includes('sumario') ||
+        nome.includes('índice') || nome.includes('indice') ||
+        nome.includes('intro')) {
+      return true;
+    }
+
+    // Verifica conteúdo (muitas listas, poucos parágrafos explicativos)
+    const linhas = conteudo.split('\n').filter(l => l.trim().length > 0);
+    const temMuitasListas = linhas.filter(l => l.match(/^[-•*]\s/) || l.match(/^\d+\./)).length > linhas.length * 0.4;
+    const temPoucoParagrafo = fragmento.conteudo.length < 500;
+    
+    if (temMuitasListas && temPoucoParagrafo) {
+      return true;
+    }
+
+    // Verifica se menciona objetivos/tópicos
+    const padroesSumario = /\b(objetivos|tópicos|topicos|conteúdo|conteudo|você vai|voce vai|nesta unidade|ao final)\b/;
+    if (padroesSumario.test(conteudo) && temPoucoParagrafo) {
+      return true;
+    }
+
+    return false;
+  }
+
+  agruparPorDocumento(fragmentos) {
+    if (!fragmentos || fragmentos.length === 0) return [];
+
+    const grupos = new Map();
+
+    for (const fragmento of fragmentos) {
+      const url = fragmento.metadados.arquivo_url;
+      
+      if (!grupos.has(url)) {
+        grupos.set(url, {
+          arquivo_url: url,
+          arquivo_nome: fragmento.metadados.arquivo_nome,
+          tipo: fragmento.metadados.tipo,
+          fragmentos: [],
+          score_medio: 0
+        });
+      }
+      
+      grupos.get(url).fragmentos.push(fragmento);
+    }
+
+    // Calcula score médio por grupo
+    const resultado = Array.from(grupos.values()).map(grupo => {
+      const scoreTotal = grupo.fragmentos.reduce((sum, f) => sum + (f.score_final || f.score || 0), 0);
+      grupo.score_medio = scoreTotal / grupo.fragmentos.length;
+      return grupo;
+    });
+
+    return resultado.sort((a, b) => b.score_medio - a.score_medio);
+  }
 }

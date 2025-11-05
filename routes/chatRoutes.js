@@ -44,6 +44,30 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
   const discoveryService = new DiscoveryService(mongo);
   const smartRanker = new SmartRanker();
 
+  // Função auxiliar para extrair escolha numérica
+  function extrairEscolha(mensagem, maxOpcoes) {
+    const lower = mensagem.toLowerCase().trim();
+    
+    // Procura por números
+    const match = lower.match(/\b(\d+)\b/);
+    if (match) {
+      const numero = parseInt(match[1]);
+      if (numero >= 1 && numero <= maxOpcoes) {
+        return numero - 1; // Retorna índice (0-based)
+      }
+    }
+
+    // Procura por palavras-chave de escolha
+    const opcoes = ['primeiro', 'segunda', 'terceiro', 'quarto', 'quinto'];
+    for (let i = 0; i < Math.min(opcoes.length, maxOpcoes); i++) {
+      if (lower.includes(opcoes[i])) {
+        return i;
+      }
+    }
+
+    return null;
+  }
+
   router.post('/chat', async (req, res) => {
     try {
       const { mensagem, conversationId } = req.body;
@@ -68,6 +92,50 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
       }
 
       const historico = conversationManager.getHistorico(currentConversationId, 5);
+
+      // Verifica se há materiais pendentes de escolha
+      const materiaisPendentes = conversationManager.getMateriaisPendentes(currentConversationId);
+      
+      if (materiaisPendentes) {
+        // Processa escolha do usuário
+        const escolha = this.extrairEscolha(mensagem, materiaisPendentes.opcoes.length);
+        
+        if (escolha !== null && escolha >= 0 && escolha < materiaisPendentes.opcoes.length) {
+          const materialEscolhido = materiaisPendentes.opcoes[escolha];
+          
+          conversationManager.adicionarMensagem(currentConversationId, 'user', mensagem);
+          
+          // Responde com o material escolhido
+          const resposta = await ai.responderComContexto(
+            materiaisPendentes.contexto.mensagem_original || mensagem,
+            historico,
+            materialEscolhido.fragmentos,
+            preferencias
+          );
+
+          const documentosUsados = [materialEscolhido.arquivo_url];
+          conversationManager.registrarDocumentosApresentados(currentConversationId, documentosUsados);
+          conversationManager.limparMateriaisPendentes(currentConversationId);
+
+          conversationManager.adicionarMensagem(
+            currentConversationId,
+            'assistant',
+            resposta,
+            materialEscolhido.fragmentos,
+            { tipo: 'consulta', material_escolhido: materialEscolhido.arquivo_nome }
+          );
+
+          return res.json(ResponseFormatter.formatChatResponse(
+            currentConversationId,
+            resposta,
+            materialEscolhido.fragmentos,
+            { tipo: 'consulta', escolha_processada: true }
+          ));
+        } else {
+          // Escolha inválida - limpa pendentes e continua fluxo normal
+          conversationManager.limparMateriaisPendentes(currentConversationId);
+        }
+      }
 
       // Detecta intenção
       const deteccaoIntencao = intentDetector.detectar(mensagem, { historico });
@@ -371,6 +439,58 @@ Responda de forma breve e natural.`;
           resposta,
           [],
           { tipo: 'sem_resultado' }
+        ));
+      }
+
+      // Verifica se há conteúdo de apresentação
+      const temApresentacao = analiseRelevancia.fragmentosRelevantes.some(f => 
+        contextAnalyzer.isConteudoApresentacao(f)
+      );
+
+      // Agrupa fragmentos por documento
+      const documentosAgrupados = contextAnalyzer.agruparPorDocumento(
+        analiseRelevancia.fragmentosRelevantes
+      );
+
+      // Se há múltiplos documentos (exceto se for apenas apresentação), pergunta preferência
+      if (documentosAgrupados.length > 1 && !temApresentacao) {
+        const opcoes = documentosAgrupados.map(doc => ({
+          arquivo_url: doc.arquivo_url,
+          arquivo_nome: doc.arquivo_nome,
+          tipo: doc.tipo,
+          fragmentos: doc.fragmentos,
+          score_medio: doc.score_medio
+        }));
+
+        const topico = intentDetector.extrairTopicoDaMensagem(queryBusca).join(' ') || 'este assunto';
+        const resposta = await ai.listarMateriaisParaEscolha(opcoes, topico, historico);
+
+        conversationManager.setMateriaisPendentes(currentConversationId, opcoes, {
+          mensagem_original: mensagem,
+          query_usada: queryBusca
+        });
+
+        conversationManager.adicionarMensagem(currentConversationId, 'user', mensagem);
+        conversationManager.adicionarMensagem(
+          currentConversationId,
+          'assistant',
+          resposta,
+          [],
+          { tipo: 'lista_materiais', total_opcoes: opcoes.length }
+        );
+
+        return res.json(ResponseFormatter.formatChatResponse(
+          currentConversationId,
+          resposta,
+          [],
+          { 
+            tipo: 'lista_materiais',
+            opcoes: opcoes.map((o, i) => ({
+              numero: i + 1,
+              nome: o.arquivo_nome,
+              tipo: o.tipo
+            }))
+          }
         ));
       }
 

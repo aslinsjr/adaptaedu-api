@@ -311,7 +311,6 @@ Exemplo: "Legal! ${topico} é um ótimo tema. O que especificamente você quer a
 NÃO liste subtópicos, apenas pergunte o que ele quer saber.`;
 
     try {
-      // Tenta Google Gemini primeiro
       const result = await this.chatModel.generateContent({
         contents: [{
           role: 'user',
@@ -329,13 +328,71 @@ NÃO liste subtópicos, apenas pergunte o que ele quer saber.`;
       console.error('Erro com Google API, tentando Grok:', error);
       
       try {
-        // Fallback para Grok
         const messages = [
           { role: 'system', content: this.personaEdu },
           { role: 'user', content: prompt }
         ];
 
         return await this._callGrokAPI(messages, 0.8, 300);
+
+      } catch (grokError) {
+        console.error('Erro com Grok API:', grokError);
+        return 'Desculpe, estou com dificuldades técnicas no momento. Por favor, tente novamente em instantes.';
+      }
+    }
+  }
+
+  async listarMateriaisParaEscolha(materiais, topico, historico = []) {
+    const listaFormatada = materiais.map((m, i) => {
+      const tipo = m.tipo.toLowerCase().includes('video') || m.tipo.toLowerCase().includes('mp4') ? 'vídeo' :
+                   m.tipo.toLowerCase().includes('pdf') || m.tipo.toLowerCase().includes('doc') ? 'texto' :
+                   m.tipo.toLowerCase().includes('image') || m.tipo.toLowerCase().includes('png') ? 'imagem' : m.tipo;
+      return `${i + 1}. ${m.arquivo_nome} (${tipo})`;
+    }).join('\n');
+
+    const prompt = `${this.personaEdu}
+
+O usuário perguntou sobre: ${topico}
+
+MATERIAIS DISPONÍVEIS:
+${listaFormatada}
+
+Crie uma resposta conversacional que:
+1. Reconheça que há múltiplos materiais sobre o tópico
+2. Liste as opções numeradas
+3. Pergunte qual material o usuário prefere
+4. NÃO use bullets ou markdown excessivo
+5. Seja natural e direto
+
+Exemplo: "Sobre ${topico}, tenho ${materiais.length} materiais diferentes:
+1. [Nome] (tipo)
+2. [Nome] (tipo)
+Qual desses você prefere?"`;
+
+    try {
+      const result = await this.chatModel.generateContent({
+        contents: [{
+          role: 'user',
+          parts: [{ text: prompt }]
+        }],
+        generationConfig: {
+          temperature: 0.7,
+          maxOutputTokens: 500,
+        }
+      });
+
+      return result.response.text();
+
+    } catch (error) {
+      console.error('Erro com Google API, tentando Grok:', error);
+      
+      try {
+        const messages = [
+          { role: 'system', content: this.personaEdu },
+          { role: 'user', content: prompt }
+        ];
+
+        return await this._callGrokAPI(messages, 0.7, 500);
 
       } catch (grokError) {
         console.error('Erro com Grok API:', grokError);
