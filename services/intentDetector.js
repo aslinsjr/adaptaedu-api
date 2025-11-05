@@ -8,7 +8,8 @@ export class IntentDetector {
       PREFERENCIA: 'preferencia',
       INTERESSE_TOPICO: 'interesse_topico',
       CONTINUACAO: 'continuacao',
-      CONFIRMACAO: 'confirmacao'
+      CONFIRMACAO: 'confirmacao',
+      NIVEL_CONHECIMENTO: 'nivel_conhecimento'
     };
 
     this.padroesCasuais = [
@@ -20,6 +21,12 @@ export class IntentDetector {
     this.padroesConfirmacao = [
       /^(sim|claro|ok|beleza|perfeito|ótimo|vamos|com certeza|pode|quero|quero sim|quero ver|quero aprender)/i,
       /^(vamos sim|vamos lá|bora|dale|dale sim)/i
+    ];
+
+    this.padroesNivelConhecimento = [
+      /\b(não|nao).*(conheço|sei|saber|entendo|entender)\b/i,
+      /\b(pouco|quase nada|bem pouco|iniciante|começando)\b/i,
+      /\b(já sei|conheço|domino|avançado|experiente)\b/i
     ];
 
     this.padroesDescoberta = [
@@ -67,6 +74,24 @@ export class IntentDetector {
             intencao: this.intencoes.CONFIRMACAO,
             confianca: 0.97,
             metadados: { razao: 'confirmacao_com_fragmentos', fragmentosPendentes: contextoAtivo.fragmentosPendentes }
+          };
+        }
+      }
+    }
+
+    // NÍVEL DE CONHECIMENTO
+    for (const padrao of this.padroesNivelConhecimento) {
+      if (padrao.test(lower)) {
+        const contextoAtivo = this.verificarContextoAtivo(historico);
+        if (contextoAtivo.temContexto && contextoAtivo.fragmentosPendentes?.length > 0) {
+          return {
+            intencao: this.intencoes.NIVEL_CONHECIMENTO,
+            confianca: 0.95,
+            metadados: { 
+              razao: 'resposta_nivel_conhecimento',
+              fragmentosPendentes: contextoAtivo.fragmentosPendentes,
+              topico: contextoAtivo.topico
+            }
           };
         }
       }

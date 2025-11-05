@@ -128,6 +128,39 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
         }
       }
 
+      // --- RESPOSTA A PERGUNTA SOBRE CONHECIMENTO (ex: "Não conheço muito") ---
+      if (deteccaoIntencao.intencao === 'nivel_conhecimento') {
+        const contextoAtivo = intentDetector.verificarContextoAtivo(historico);
+        if (contextoAtivo.temContexto && contextoAtivo.fragmentosPendentes?.length > 0) {
+          const fragmentos = contextoAtivo.fragmentosPendentes;
+          const nivel = mensagem.toLowerCase().includes('não') || mensagem.toLowerCase().includes('pouco') ? 'basico' : 'intermediario';
+          const preferenciasAtualizadas = { ...preferencias, profundidade: nivel };
+          conversationManager.atualizarPreferencias(currentConversationId, preferenciasAtualizadas);
+
+          const resposta = await ai.responderComContexto(
+            `Explicar do básico sobre ${contextoAtivo.topico}`,
+            historico,
+            fragmentos,
+            preferenciasAtualizadas
+          );
+          const documentosUsados = [...new Set(fragmentos.map(f => f.metadados.arquivo_url))];
+          conversationManager.registrarDocumentosApresentados(currentConversationId, documentosUsados);
+          conversationManager.adicionarMensagem(
+            currentConversationId,
+            'assistant',
+            resposta,
+            fragmentos,
+            { tipo: 'consulta', nivel_adaptado: nivel }
+          );
+          return res.json(ResponseFormatter.formatChatResponse(
+            currentConversationId,
+            resposta,
+            fragmentos,
+            { tipo: 'consulta', nivel_adaptado: nivel }
+          ));
+        }
+      }
+
       // --- CASUAL ---
       if (deteccaoIntencao.intencao === 'casual') {
         const resposta = await ai.conversarLivremente(
