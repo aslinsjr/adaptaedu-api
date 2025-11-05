@@ -19,6 +19,7 @@ export class ConversationManager {
       },
       estado: 'novo',
       onboardingCompleto: false,
+      documentos_apresentados: [], // Tracking de documentos já mostrados
       criado_em: new Date(),
       atualizado_em: new Date()
     });
@@ -145,5 +146,23 @@ export class ConversationManager {
   isPrimeiraInteracao(conversationId) {
     const conversa = this.conversations.get(conversationId);
     return !conversa || conversa.mensagens.length === 0;
+  }
+
+  getDocumentosApresentados(conversationId) {
+    const conversa = this.conversations.get(conversationId);
+    return conversa?.documentos_apresentados || [];
+  }
+
+  registrarDocumentosApresentados(conversationId, arquivos_urls) {
+    const conversa = this.conversations.get(conversationId);
+    if (!conversa) return;
+
+    for (const url of arquivos_urls) {
+      if (!conversa.documentos_apresentados.includes(url)) {
+        conversa.documentos_apresentados.push(url);
+      }
+    }
+    
+    conversa.atualizado_em = new Date();
   }
 }

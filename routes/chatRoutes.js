@@ -307,9 +307,16 @@ Responda de forma breve e natural.`;
         queryBusca
       );
 
+      // 2.5. Penaliza documentos já apresentados
+      const documentosApresentados = conversationManager.getDocumentosApresentados(currentConversationId);
+      const fragmentosComPenalidade = smartRanker.aplicarPenalidadeRepeticao(
+        fragmentosRankeados,
+        documentosApresentados
+      );
+
       // 3. Agrupamento de contíguos
       const fragmentosAgrupados = smartRanker.agruparChunksContiguos(
-        fragmentosRankeados
+        fragmentosComPenalidade
       );
 
       // 4. Deduplicação
@@ -374,6 +381,12 @@ Responda de forma breve e natural.`;
         analiseRelevancia.fragmentosRelevantes,
         preferencias
       );
+
+      // Registra documentos apresentados
+      const documentosUsados = [...new Set(
+        analiseRelevancia.fragmentosRelevantes.map(f => f.metadados.arquivo_url)
+      )];
+      conversationManager.registrarDocumentosApresentados(currentConversationId, documentosUsados);
 
       conversationManager.adicionarMensagem(
         currentConversationId,

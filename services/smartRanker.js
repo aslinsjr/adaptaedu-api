@@ -347,4 +347,30 @@ export class SmartRanker {
     ]);
     return stopWords.has(palavra);
   }
+
+  aplicarPenalidadeRepeticao(fragmentos, documentosApresentados = []) {
+    if (!documentosApresentados || documentosApresentados.length === 0) {
+      return fragmentos;
+    }
+
+    const docsSet = new Set(documentosApresentados);
+
+    return fragmentos.map(f => {
+      const url = f.metadados.arquivo_url;
+      
+      if (docsSet.has(url)) {
+        // Reduz score em 50% para documentos já apresentados
+        const scorePenalizado = (f.score_final || f.score) * 0.5;
+        
+        return {
+          ...f,
+          score_final: scorePenalizado,
+          score_original: f.score_final || f.score,
+          penalizado: true
+        };
+      }
+      
+      return f;
+    });
+  }
 }
