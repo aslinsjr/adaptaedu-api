@@ -63,6 +63,14 @@ export class IntentDetector {
       'onde', 'explique', 'explica', 'ensine', 'ensina', 'mostre', 'mostra',
       'defina', 'define', 'diferença', 'funciona'
     ];
+
+    // NOVO: Palavras-chave de tópicos conhecidos
+    this.topicosConhecidos = {
+      'html': ['html', 'html5', 'páginas web', 'pagina html', 'construir página', 'criar site'],
+      'programação': ['programação', 'programar', 'codar', 'código', 'desenvolvimento'],
+      'css': ['css', 'estilo', 'estilizar', 'folha de estilo'],
+      'javascript': ['javascript', 'js', 'script', 'interatividade']
+    };
   }
 
   detectar(mensagem, contexto = {}) {
@@ -108,7 +116,7 @@ export class IntentDetector {
       }
     }
 
-    // DESCOBERTA — PRIORIZADA E AMPLIADA
+    // DESCOBERTA
     for (const padrao of this.padroesDescoberta) {
       if (padrao.test(lower)) {
         return { 
@@ -117,6 +125,20 @@ export class IntentDetector {
           metadados: { razao: 'padrao_descoberta_ampliado' } 
         };
       }
+    }
+
+    // DETECÇÃO DE INTERESSE EM TÓPICO ESPECÍFICO (HTML, etc.)
+    const topicoDetectado = this.detectarTopicoConhecido(lower);
+    if (topicoDetectado) {
+      return {
+        intencao: this.intencoes.INTERESSE_TOPICO,
+        confianca: 0.92,
+        metadados: { 
+          razao: 'topico_conhecido', 
+          termoBuscado: topicoDetectado,
+          original: mensagem
+        }
+      };
     }
 
     // CONTINUAÇÃO
@@ -142,14 +164,14 @@ export class IntentDetector {
       }
     }
 
-    // INTERESSE EM TÓPICO
+    // INTERESSE EM TÓPICO (GENÉRICO)
     const temPalavrasPergunta = this.palavrasPergunta.some(p => lower.includes(p));
     const palavras = mensagem.split(/\s+/);
-    if (palavras.length <= 5 && !temPalavrasPergunta) {
+    if (palavras.length <= 7 && !temPalavrasPergunta) {
       return {
         intencao: this.intencoes.INTERESSE_TOPICO,
         confianca: 0.8,
-        metadados: { razao: 'interesse_topico', termoBuscado: mensagem.trim() }
+        metadados: { razao: 'interesse_topico_generico', termoBuscado: mensagem.trim() }
       };
     }
 
@@ -160,6 +182,18 @@ export class IntentDetector {
       metadados.usar_contexto_historico = true;
     }
     return { intencao: this.intencoes.CONSULTA, confianca: 0.7, metadados };
+  }
+
+  // NOVO: Detectar tópicos conhecidos com palavras-chave
+  detectarTopicoConhecido(mensagem) {
+    for (const [topico, palavrasChave] of Object.entries(this.topicosConhecidos)) {
+      for (const palavra of palavrasChave) {
+        if (mensagem.includes(palavra)) {
+          return topico;
+        }
+      }
+    }
+    return null;
   }
 
   verificarContextoAtivo(historico) {
