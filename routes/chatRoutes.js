@@ -100,13 +100,11 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
         const dadosDisponiveis = await discoveryService.listarTopicosDisponiveis();
         const apresentacao = discoveryService.formatarParaApresentacao(dadosDisponiveis);
         
-        // Mapear tipos para formato amigável
         const tiposMaterialAmigaveis = apresentacao.estatisticas.tipos_material.map(t => ({
           tipo: mapearTiposParaAmigavel([t.tipo])[0],
           quantidade: t.quantidade
         }));
 
-        // Adicionar tipos amigáveis aos tópicos
         const topicosComTiposAmigaveis = apresentacao.destaques.map(t => ({
           nome: t.nome,
           tipos_disponiveis: mapearTiposParaAmigavel(t.tipos_disponiveis),
@@ -207,6 +205,21 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
         ));
       }
 
+      // CONTINUACAO - usa contexto do histórico
+      if (deteccaoIntencao.intencao === 'continuacao') {
+        const topicoContexto = deteccaoIntencao.metadados.topico_contexto;
+        
+        // Enriquece a query com o tópico do contexto
+        const queryEnriquecida = topicoContexto 
+          ? `${topicoContexto} ${mensagem}` 
+          : mensagem;
+
+        // Força intenção para CONSULTA para processar normalmente
+        deteccaoIntencao.intencao = 'consulta';
+        deteccaoIntencao.metadados.query_enriquecida = queryEnriquecida;
+        deteccaoIntencao.metadados.usou_contexto = true;
+      }
+
       // CONSULTA COM SMART RANKER
       const preferenciasImplicitas = dialogueManager.detectarPreferenciaImplicita(mensagem);
       if (preferenciasImplicitas) {
@@ -221,15 +234,26 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
 
       const maxFragmentos = preferencias.limiteFragmentos || 5;
 
+      // Determina query para busca
+      let queryBusca = mensagem;
+      
+      // Se há contexto no histórico e mensagem é curta, enriquece query
+      if (deteccaoIntencao.metadados.usar_contexto_historico && 
+          deteccaoIntencao.metadados.topico_contexto) {
+        queryBusca = `${deteccaoIntencao.metadados.topico_contexto} ${mensagem}`;
+      } else if (deteccaoIntencao.metadados.query_enriquecida) {
+        queryBusca = deteccaoIntencao.metadados.query_enriquecida;
+      }
+
       // 1. Busca inicial com mais resultados
       const fragmentosBrutos = await vectorSearch.buscarFragmentosRelevantes(
-        mensagem,
+        queryBusca,
         filtros,
-        maxFragmentos * 3 // Busca 3x mais para ter opções
+        maxFragmentos * 3
       );
 
       if (!fragmentosBrutos || fragmentosBrutos.length === 0) {
-        const topicosExtraidos = intentDetector.extrairTopicoDaMensagem(mensagem);
+        const topicosExtraidos = intentDetector.extrairTopicoDaMensagem(queryBusca);
         const sugestaoContexto = topicosExtraidos.length > 0
           ? `O usuário perguntou sobre: ${topicosExtraidos.join(', ')}. Não há material relevante. Seja honesto e sugira explorar tópicos disponíveis.`
           : 'Não há material sobre isso. Sugira ao usuário explorar os tópicos disponíveis.';
@@ -255,7 +279,7 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
       // 2. Ranking inteligente
       const fragmentosRankeados = smartRanker.rankearPorQualidade(
         fragmentosBrutos,
-        mensagem
+        queryBusca
       );
 
       // 3. Agrupamento de contíguos
@@ -278,7 +302,7 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
       const analiseRelevancia = contextAnalyzer.analisarRelevancia(fragmentosFinais, 0.65);
 
       if (!analiseRelevancia.temConteudoRelevante) {
-        const topicosExtraidos = intentDetector.extrairTopicoDaMensagem(mensagem);
+        const topicosExtraidos = intentDetector.extrairTopicoDaMensagem(queryBusca);
         const sugestaoContexto = topicosExtraidos.length > 0
           ? `O usuário perguntou sobre: ${topicosExtraidos.join(', ')}. Não há material suficientemente relevante. Seja honesto e sugira explorar tópicos disponíveis.`
           : 'Não há material relevante sobre isso. Sugira ao usuário explorar os tópicos disponíveis.';
@@ -327,7 +351,8 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
           confianca: deteccaoIntencao.confianca,
           diversidade: analiseRelevancia.diversidadeDocumentos,
           total_processados: fragmentosBrutos.length,
-          selecionados: fragmentosFinais.length
+          selecionados: fragmentosFinais.length,
+          contexto_usado: deteccaoIntencao.metadados.usou_contexto || false
         }
       ));
 

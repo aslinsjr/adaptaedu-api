@@ -6,12 +6,20 @@ export class IntentDetector {
       DESCOBERTA: 'descoberta',
       CONSULTA: 'consulta',
       PREFERENCIA: 'preferencia',
-      INTERESSE_TOPICO: 'interesse_topico'
+      INTERESSE_TOPICO: 'interesse_topico',
+      CONTINUACAO: 'continuacao'
     };
 
     this.padroesCasuais = [
       /^(oi|olá|ola|hey|hi|hello|bom dia|boa tarde|boa noite|tudo bem|como vai|beleza|e aí)[\s\?\!]*$/i,
       /^(obrigad[oa]|valeu|legal|ok|entendi|certo)[\s\?\!]*$/i
+    ];
+
+    this.padroesContinuacao = [
+      /^(vamos|continue|prossiga|pode continuar|me explica|explica|conta mais|fala mais)/i,
+      /^(legal|ótimo|perfeito|show|beleza|certo|ok|sim),?\s+(vamos|continue|prossiga|começa|começar|me explica)/i,
+      /^(vamos lá|bora|pode ir|vai)/i,
+      /^(e (aí|ai|agora|então))/i
     ];
 
     this.padroesDescoberta = [
@@ -51,6 +59,44 @@ export class IntentDetector {
       }
     }
 
+    // Continuação - verifica se há contexto ativo
+    const contextoAtivo = this.verificarContextoAtivo(historico);
+    
+    for (const padrao of this.padroesContinuacao) {
+      if (padrao.test(lower)) {
+        if (contextoAtivo.temContexto) {
+          return {
+            intencao: this.intencoes.CONTINUACAO,
+            confianca: 0.9,
+            metadados: { 
+              razao: 'continuacao_contexto',
+              topico_contexto: contextoAtivo.topico,
+              tipo_anterior: contextoAtivo.tipoResposta
+            }
+          };
+        }
+      }
+    }
+
+    // Mensagem curta de confirmação com contexto ativo
+    const palavras = mensagem.split(/\s+/);
+    if (palavras.length <= 4 && contextoAtivo.temContexto) {
+      const ehConfirmacao = /^(sim|yes|ok|certo|legal|ótimo|show|beleza|perfeito|entendi|claro)/i.test(lower);
+      const temContinuacao = /\b(vamos|continua|começa|vai|explica|conta|fala)/i.test(lower);
+      
+      if (ehConfirmacao || temContinuacao) {
+        return {
+          intencao: this.intencoes.CONTINUACAO,
+          confianca: 0.85,
+          metadados: { 
+            razao: 'confirmacao_curta_com_contexto',
+            topico_contexto: contextoAtivo.topico,
+            tipo_anterior: contextoAtivo.tipoResposta
+          }
+        };
+      }
+    }
+
     // Preferência
     for (const padrao of this.padroesPreferencia) {
       if (padrao.test(lower)) {
@@ -81,7 +127,6 @@ export class IntentDetector {
     }
 
     // Interesse em tópico (mensagem curta sem palavras de pergunta)
-    const palavras = mensagem.split(/\s+/);
     const temPalavrasPergunta = this.palavrasPergunta.some(p => lower.includes(p));
     
     if (palavras.length <= 5 && !temPalavrasPergunta) {
@@ -95,15 +140,80 @@ export class IntentDetector {
       };
     }
 
-    // Consulta (padrão)
+    // Consulta (padrão) - com enriquecimento de contexto
+    const metadados = { 
+      razao: 'padrao_default',
+      comprimento: mensagem.split(/\s+/).length 
+    };
+
+    // Se mensagem é curta e há contexto, adiciona topico do contexto
+    if (palavras.length <= 6 && contextoAtivo.temContexto) {
+      metadados.topico_contexto = contextoAtivo.topico;
+      metadados.usar_contexto_historico = true;
+    }
+
     return {
       intencao: this.intencoes.CONSULTA,
       confianca: 0.7,
-      metadados: { 
-        razao: 'padrao_default',
-        comprimento: mensagem.split(/\s+/).length 
-      }
+      metadados
     };
+  }
+
+  verificarContextoAtivo(historico) {
+    if (!historico || historico.length === 0) {
+      return { temContexto: false };
+    }
+
+    // Pega as últimas 2 mensagens (1 do usuário, 1 do assistente)
+    const mensagensRecentes = historico.slice(-2);
+    
+    // Verifica se a última resposta foi do assistente
+    const ultimaResposta = mensagensRecentes[mensagensRecentes.length - 1];
+    
+    if (ultimaResposta?.role !== 'assistant') {
+      return { temContexto: false };
+    }
+
+    // Verifica se há tópico identificado nos metadados
+    const tipoResposta = ultimaResposta.metadata?.tipo;
+    const topico = ultimaResposta.metadata?.topico;
+
+    // Contexto ativo se a resposta foi sobre descoberta, engajamento ou consulta
+    const temContexto = ['descoberta', 'engajamento_topico', 'consulta'].includes(tipoResposta);
+
+    if (temContexto) {
+      // Extrai tópico da resposta anterior
+      const topicoExtraido = topico || this.extrairTopicoDeResposta(ultimaResposta.content);
+      
+      return {
+        temContexto: true,
+        topico: topicoExtraido,
+        tipoResposta: tipoResposta
+      };
+    }
+
+    return { temContexto: false };
+  }
+
+  extrairTopicoDeResposta(resposta) {
+    if (!resposta) return null;
+
+    // Procura por padrões como "sobre X", "materiais sobre X", etc
+    const padroes = [
+      /materiais sobre ([a-záàâãéèêíïóôõöúçñ\s]+)/i,
+      /sobre ([a-záàâãéèêíïóôõöúçñ\s]+)/i,
+      /tópico[:\s]+([a-záàâãéèêíïóôõöúçñ\s]+)/i,
+      /aprender ([a-záàâãéèêíïóôõöúçñ\s]+)/i
+    ];
+
+    for (const padrao of padroes) {
+      const match = resposta.match(padrao);
+      if (match) {
+        return match[1].trim().split(/\s+/).slice(0, 3).join(' ');
+      }
+    }
+
+    return null;
   }
 
   extrairTermoEspecifico(mensagem) {
