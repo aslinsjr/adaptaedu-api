@@ -27,7 +27,7 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
   const dialogueManager = new DialogueManager(ai);
   const contextAnalyzer = new ContextAnalyzer();
   const intentDetector = new IntentDetector();
-  const discoveryService = new DiscoveryService({ db }); // OK
+  const discoveryService = new DiscoveryService(mongo);
   const smartRanker = new SmartRanker();
 
   function extrairEscolha(mensagem, maxOpcoes) {
