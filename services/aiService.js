@@ -64,6 +64,7 @@ Responda de forma direta e útil.
 Seja natural e conversacional, mas objetivo.`;
 
     try {
+      // Tenta Google Gemini primeiro
       const conversationHistory = historico.map(msg => ({
         role: msg.role === 'user' ? 'user' : 'model',
         parts: [{ text: msg.content }]
@@ -89,6 +90,7 @@ Seja natural e conversacional, mas objetivo.`;
       console.error('Erro com Google API, tentando Grok:', error);
       
       try {
+        // Fallback para Grok
         const messages = [
           { role: 'system', content: systemPrompt },
           ...historico.map(msg => ({
@@ -140,6 +142,8 @@ INSTRUÇÕES CRÍTICAS:
 
 Exemplo bom: "Sobre HTML, tenho: assista este vídeo sobre Âncoras HTML [Capítulo do Livro, página 3], ou se preferir leia estes textos sobre desenvolvimento PHP [Manual PHP, página 15] e HTML5 [Guia Web, página 8]."
 
+Exemplo ruim: "Olá! Tenho sim! - Assista este vídeo... - Leia este texto..."
+
 MATERIAIS DISPONÍVEIS (ordenados por relevância):
 ${fragmentos.map((f, i) => {
   const loc = f.metadados.localizacao;
@@ -170,9 +174,11 @@ INSTRUÇÕES DE CITAÇÃO:
 
 Responda retomando o tópico da pergunta de forma natural e conversacional.`;
 
-    const temperatura = preferencias?.profundidade === 'basico' ? 0.5 : 0.8;
+    const temperatura = preferencias?.profundidade === 'basico' ? 0.5 : 
+                       preferencias?.profundidade === 'avancado' ? 0.8 : 0.7;
 
     try {
+      // Tenta Google Gemini primeiro
       const conversationHistory = historico.map(msg => ({
         role: msg.role === 'user' ? 'user' : 'model',
         parts: [{ text: msg.content }]
@@ -198,6 +204,7 @@ Responda retomando o tópico da pergunta de forma natural e conversacional.`;
       console.error('Erro com Google API, tentando Grok:', error);
       
       try {
+        // Fallback para Grok
         const messages = [
           { role: 'system', content: systemPrompt },
           ...historico.map(msg => ({
@@ -251,6 +258,7 @@ Crie uma apresentação conversacional (NÃO use listas ou bullets):
 Seja amigável mas conciso. Não use saudações como "Olá" ou "Oi".`}`;
 
     try {
+      // Tenta Google Gemini primeiro
       const result = await this.chatModel.generateContent({
         contents: [{
           role: 'user',
@@ -268,6 +276,7 @@ Seja amigável mas conciso. Não use saudações como "Olá" ou "Oi".`}`;
       console.error('Erro com Google API, tentando Grok:', error);
       
       try {
+        // Fallback para Grok
         const messages = [
           { role: 'system', content: this.personaEdu },
           { role: 'user', content: prompt }
@@ -350,15 +359,14 @@ ${listaFormatada}
 
 Crie uma resposta conversacional que:
 1. Reconheça que há múltiplos materiais sobre o tópico
-2. Explique brevemente cada material (ex: "O primeiro é um texto introdutório", "O segundo é um vídeo prático")
-3. Liste as opções numeradas
-4. Pergunte qual material o usuário prefere
-5. NÃO use bullets ou markdown excessivo
-6. Seja natural e direto
+2. Liste as opções numeradas
+3. Pergunte qual material o usuário prefere
+4. NÃO use bullets ou markdown excessivo
+5. Seja natural e direto
 
 Exemplo: "Sobre ${topico}, tenho ${materiais.length} materiais diferentes:
-1. [Nome] (texto) - introdução completa ao tema
-2. [Nome] (vídeo) - demonstração prática
+1. [Nome] (tipo)
+2. [Nome] (tipo)
 Qual desses você prefere?"`;
 
     try {
@@ -392,4 +400,5 @@ Qual desses você prefere?"`;
       }
     }
   }
+
 }
