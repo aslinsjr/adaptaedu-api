@@ -29,7 +29,7 @@ const vectorSearch = new VectorSearchService(mongo, ai);
 const textReconstructor = new TextReconstructor(mongo);
 
 app.use('/api', createChatRoutes(vectorSearch, ai, conversationManager, mongo));
-app.use('/api', createDocumentRoutes(mongo, textReconstructor, vectorSearch));
+app.use('/api', createChatRoutes(vectorSearch, ai, conversationManager, mongo.db, intentDetector));
 app.use('/api', createSearchRoutes(vectorSearch));
 
 app.get('/health', (req, res) => {

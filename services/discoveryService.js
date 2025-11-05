@@ -1,38 +1,38 @@
-// services/discoveryService.js
 export class DiscoveryService {
-  constructor(mongoService) {
-    this.mongo = mongoService;
+  constructor({ db }) {  // <-- Recebe { db }
+    this.db = db;       // <-- Armazena corretamente
   }
 
   async listarTopicosDisponiveis() {
-    const pipeline = [
-      {
-        $match: {
-          'metadados.tags': { $exists: true, $ne: [] }
-          // Evite filtros diretos sem $eq
+    try {
+      const pipeline = [
+        { $match: { 'metadados.tags': { $exists: true, $ne: [] } } },
+        { $unwind: '$metadados.tags' },
+        {
+          $group: {
+            _id: '$metadados.tags',
+            fragmentos: { $sum: 1 },
+            tipos: { $addToSet: '$metadados.tipo' },
+            documentos: { $addToSet: '$metadados.arquivo_nome' }
+          }
+        },
+        {
+          $project: {
+            topico: '$_id',
+            fragmentos: 1,
+            tipos: 1,
+            documentos: 1,
+            _id: 0
+          }
         }
-      },
-      { $unwind: '$metadados.tags' },
-      {
-        $group: {
-          _id: '$metadados.tags',
-          fragmentos: { $sum: 1 },
-          tipos: { $addToSet: '$metadados.tipo' },
-          documentos: { $addToSet: '$metadados.arquivo_nome' }
-        }
-      },
-      {
-        $project: {
-          topico: '$_id',
-          fragmentos: 1,
-          tipos: 1,
-          documentos: 1,
-          _id: 0
-        }
-      }
-    ];
+      ];
 
-    return await this.db.collection('chunks').aggregate(pipeline).toArray();
+      const result = await this.db.collection('chunks').aggregate(pipeline).toArray();
+      return result;
+    } catch (error) {
+      console.error('Erro ao listar tópicos:', error);
+      return [];
+    }
   }
 
   async buscarPorTopico(topico) {
