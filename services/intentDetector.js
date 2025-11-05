@@ -103,7 +103,7 @@ export class IntentDetector {
 
     // CASUAL
     for (const padrao of this.padroesCasuais) {
-      if (padrao.test(lower Quartz)) {
+      if (padrao.test(lower)) {
         return { intencao: this.intencoes.CASUAL, confianca: 0.98, metadados: { razao: 'padrao_casual' } };
       }
     }
