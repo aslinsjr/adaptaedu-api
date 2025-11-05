@@ -58,13 +58,9 @@ IMPORTANTE: NUNCA inicie respostas com saudações como "Olá", "Oi", "Que bom",
   }
 
   async conversarLivremente(mensagem, historico = [], contextoSistema = '') {
-    const systemPrompt = contextoSistema || `${this.personaEdu}
-
-Responda de forma direta e útil.
-Seja natural e conversacional, mas objetivo.`;
+    const systemPrompt = contextoSistema || `${this.personaEdu}\n\nResponda de forma direta, natural e útil.`;
 
     try {
-      // Tenta Google Gemini primeiro
       const conversationHistory = historico.map(msg => ({
         role: msg.role === 'user' ? 'user' : 'model',
         parts: [{ text: msg.content }]
@@ -73,35 +69,22 @@ Seja natural e conversacional, mas objetivo.`;
       const result = await this.chatModel.generateContent({
         contents: [
           ...conversationHistory,
-          {
-            role: 'user',
-            parts: [{ text: `${systemPrompt}\n\nUSUÁRIO: ${mensagem}` }]
-          }
+          { role: 'user', parts: [{ text: `${systemPrompt}\n\nUSUÁRIO: ${mensagem}` }] }
         ],
-        generationConfig: {
-          temperature: 0.8,
-          maxOutputTokens: 2048,
-        }
+        generationConfig: { temperature: 0.8, maxOutputTokens: 2048 }
       });
 
       return result.response.text();
 
     } catch (error) {
       console.error('Erro com Google API, tentando Grok:', error);
-      
       try {
-        // Fallback para Grok
         const messages = [
           { role: 'system', content: systemPrompt },
-          ...historico.map(msg => ({
-            role: msg.role === 'user' ? 'user' : 'assistant',
-            content: msg.content
-          })),
+          ...historico.map(msg => ({ role: msg.role === 'user' ? 'user' : 'assistant', content: msg.content })),
           { role: 'user', content: mensagem }
         ];
-
         return await this._callGrokAPI(messages, 0.8, 2048);
-
       } catch (grokError) {
         console.error('Erro com Grok API:', grokError);
         return 'Desculpe, estou com dificuldades técnicas no momento. Por favor, tente novamente em instantes.';
@@ -110,41 +93,19 @@ Seja natural e conversacional, mas objetivo.`;
   }
 
   async responderComContexto(mensagem, historico = [], fragmentos = [], preferencias = null) {
-    const materiaisPorTipo = {};
-    
-    for (const f of fragmentos) {
-      const tipo = f.metadados.tipo.toLowerCase();
-      const tipoAmigavel = tipo.includes('pdf') || tipo.includes('doc') || tipo.includes('txt') ? 'texto' : 
-                          tipo.includes('video') || tipo.includes('mp4') ? 'vídeo' : 
-                          tipo.includes('image') || tipo.includes('png') || tipo.includes('jpg') ? 'imagem' : tipo;
-      
-      if (!materiaisPorTipo[tipoAmigavel]) {
-        materiaisPorTipo[tipoAmigavel] = [];
-      }
-      materiaisPorTipo[tipoAmigavel].push(f);
-    }
-
     const systemPrompt = `${this.personaEdu}
 
 Você está apresentando materiais didáticos de forma conversacional.
 
 INSTRUÇÕES CRÍTICAS:
-1. Comece retomando o TÓPICO da pergunta do usuário (ex: "Tenho os seguintes materiais sobre programação...", "Sobre HTML, tenho...")
-2. Apresente os materiais usando este formato:
-   - Para texto: "leia este texto para aprender sobre [tópico]"
-   - Para vídeo: "assista este vídeo para aprender sobre [tópico]"
-   - Para imagem: "veja esta imagem para aprender sobre [tópico]"
-3. Se houver múltiplos materiais, conecte-os com "ou se preferir", "também tenho", etc
-4. NÃO use bullets (-) ou listas numeradas
-5. Escreva em um fluxo natural, como uma conversa
-6. NUNCA comece com saudações
-7. SEMPRE mencione a localização: "[Nome do documento, página X]"
+1. Comece retomando o TÓPICO da pergunta do usuário
+2. Apresente os materiais com: "leia este texto", "assista este vídeo", "veja esta imagem"
+3. Se múltiplos, conecte com "ou se preferir", "também tenho"
+4. NÃO use bullets ou listas numeradas
+5. SEMPRE cite: "[Nome do documento, página X]"
+6. Fluxo natural, como conversa
 
-Exemplo bom: "Sobre HTML, tenho: assista este vídeo sobre Âncoras HTML [Capítulo do Livro, página 3], ou se preferir leia estes textos sobre desenvolvimento PHP [Manual PHP, página 15] e HTML5 [Guia Web, página 8]."
-
-Exemplo ruim: "Olá! Tenho sim! - Assista este vídeo... - Leia este texto..."
-
-MATERIAIS DISPONÍVEIS (ordenados por relevância):
+MATERIAIS DISPONÍVEIS:
 ${fragmentos.map((f, i) => {
   const loc = f.metadados.localizacao;
   const ctx = f.metadados.contexto_documento;
@@ -154,71 +115,40 @@ ${fragmentos.map((f, i) => {
                       tipo.includes('image') || tipo.includes('png') || tipo.includes('jpg') ? 'imagem' : tipo;
   
   return `
-━━━ Material ${i + 1} - ${tipoAmigavel} ━━━
-📄 Documento: ${f.metadados.arquivo_nome}
-📍 Localização: Página ${loc?.pagina || 'N/A'}${loc?.secao ? `, Seção ${loc.secao}` : ''}
-📊 Relevância: ${((f.score_final || f.score) * 100).toFixed(1)}%
-🔢 Posição: ${ctx?.posicao_percentual}% do documento
-${f.metadados.mesclado ? `📑 Conteúdo mesclado de ${f.metadados.chunks_originais} fragmentos` : ''}
-📝 Conteúdo:
+━━━ Material ${i + 1} ━━━
+Documento: ${f.metadados.arquivo_nome}
+Localização: Página ${loc?.pagina || 'N/A'}${loc?.secao ? `, Seção ${loc.secao}` : ''}
+Relevância: ${((f.score_final || f.score) * 100).toFixed(1)}%
+Conteúdo:
 ${f.conteudo}
 ━━━━━━━━━━━━━━━━
 `;
 }).join('\n')}
 
-INSTRUÇÕES DE CITAÇÃO:
-- Ao mencionar informações, SEMPRE cite: "[Nome do documento, pág. X]"
-- Se houver múltiplas fontes, indique todas
-- Priorize materiais com maior relevância
-- Se informações conflitantes, mencione ambas com suas fontes
+Responda de forma natural e conversacional.`;
 
-Responda retomando o tópico da pergunta de forma natural e conversacional.`;
-
-    const temperatura = preferencias?.profundidade === 'basico' ? 0.5 : 
-                       preferencias?.profundidade === 'avancado' ? 0.8 : 0.7;
+    const temperatura = preferencias?.profundidade === 'basico' ? 0.5 : 0.8;
 
     try {
-      // Tenta Google Gemini primeiro
-      const conversationHistory = historico.map(msg => ({
-        role: msg.role === 'user' ? 'user' : 'model',
-        parts: [{ text: msg.content }]
-      }));
-
       const result = await this.chatModel.generateContent({
         contents: [
-          ...conversationHistory,
-          {
-            role: 'user',
-            parts: [{ text: `${systemPrompt}\n\nPERGUNTA: ${mensagem}` }]
-          }
+          ...historico.map(msg => ({ role: msg.role === 'user' ? 'user' : 'model', parts: [{ text: msg.content }] })),
+          { role: 'user', parts: [{ text: `${systemPrompt}\n\nPERGUNTA: ${mensagem}` }] }
         ],
-        generationConfig: {
-          temperature: temperatura,
-          maxOutputTokens: 2048,
-        }
+        generationConfig: { temperature, maxOutputTokens: 2048 }
       });
-
       return result.response.text();
-
     } catch (error) {
       console.error('Erro com Google API, tentando Grok:', error);
-      
       try {
-        // Fallback para Grok
         const messages = [
           { role: 'system', content: systemPrompt },
-          ...historico.map(msg => ({
-            role: msg.role === 'user' ? 'user' : 'assistant',
-            content: msg.content
-          })),
+          ...historico.map(msg => ({ role: msg.role === 'user' ? 'user' : 'assistant', content: msg.content })),
           { role: 'user', content: `PERGUNTA: ${mensagem}` }
         ];
-
         return await this._callGrokAPI(messages, temperatura, 2048);
-
       } catch (grokError) {
-        console.error('Erro com Grok API:', grokError);
-        return 'Desculpe, estou com dificuldades técnicas no momento. Por favor, tente novamente em instantes.';
+        return 'Desculpe, estou com dificuldades técnicas no momento.';
       }
     }
   }
@@ -241,112 +171,73 @@ Responda de forma conversacional (NÃO use listas ou bullets) dizendo:
 - Quais formatos de material existem
 - Pergunte qual tópico interessa
 
-Exemplo: "Os tópicos disponíveis são [tópicos]. Tenho material em [formatos]. Qual tópico te interessa?"
-
-IMPORTANTE: Vá direto ao ponto, sem saudações.`
-  : `Você está apresentando materiais pela primeira vez nesta conversa.
+Exemplo: "Os tópicos disponíveis são HTML, CSS e JavaScript. Tenho material em texto e vídeo. Qual tópico te interessa?"`
+  : `Você está apresentando materiais pela primeira vez.
 
 TÓPICOS: ${listaTopicos}
 FORMATOS: ${tiposDisponiveis}
 
-Crie uma apresentação conversacional (NÃO use listas ou bullets):
+Crie uma apresentação conversacional:
 1. Breve introdução
 2. Liste os tópicos disponíveis em texto corrido
-3. Mencione os formatos de material
+3. Mencione os formatos
 4. Pergunte qual tópico interessa
 
-Seja amigável mas conciso. Não use saudações como "Olá" ou "Oi".`}`;
+Seja amigável mas conciso.`}`;
 
     try {
-      // Tenta Google Gemini primeiro
       const result = await this.chatModel.generateContent({
-        contents: [{
-          role: 'user',
-          parts: [{ text: prompt }]
-        }],
-        generationConfig: {
-          temperature: 0.7,
-          maxOutputTokens: 500,
-        }
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.7, maxOutputTokens: 500 }
       });
-
       return result.response.text();
-
     } catch (error) {
       console.error('Erro com Google API, tentando Grok:', error);
-      
       try {
-        // Fallback para Grok
-        const messages = [
-          { role: 'system', content: this.personaEdu },
-          { role: 'user', content: prompt }
-        ];
-
+        const messages = [{ role: 'system', content: this.personaEdu }, { role: 'user', content: prompt }];
         return await this._callGrokAPI(messages, 0.7, 500);
-
       } catch (grokError) {
-        console.error('Erro com Grok API:', grokError);
-        return 'Desculpe, estou com dificuldades técnicas no momento. Por favor, tente novamente em instantes.';
+        return 'Desculpe, estou com dificuldades técnicas no momento.';
       }
     }
   }
 
   async gerarEngajamentoTopico(topico, tiposMaterial, historico = []) {
     const tipos = tiposMaterial.join(' e ');
-    
     const prompt = `${this.personaEdu}
 
 O usuário demonstrou interesse no tópico: ${topico}
 
-MATERIAIS DISPONÍVEIS: ${tipos}
+MATERIAIS: ${tipos}
 
-Crie uma resposta conversacional (2-3 linhas) que:
-1. Reconheça o interesse no tópico de forma natural
-2. Pergunte O QUE ESPECIFICAMENTE ele quer aprender sobre o tópico
-3. Seja direto e acolhedor
-4. NÃO use saudações
+Resposta curta (2-3 linhas):
+1. Reconheça o interesse
+2. Pergunte o que especificamente quer aprender
+3. Seja acolhedor
 
-Exemplo: "Legal! ${topico} é um ótimo tema. O que especificamente você quer aprender sobre ${topico}?"
-
-NÃO liste subtópicos, apenas pergunte o que ele quer saber.`;
+Exemplo: "Ótimo! ${topico} é essencial. O que você gostaria de aprender sobre ele?"`;
 
     try {
       const result = await this.chatModel.generateContent({
-        contents: [{
-          role: 'user',
-          parts: [{ text: prompt }]
-        }],
-        generationConfig: {
-          temperature: 0.8,
-          maxOutputTokens: 300,
-        }
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.8, maxOutputTokens: 300 }
       });
-
       return result.response.text();
-
     } catch (error) {
-      console.error('Erro com Google API, tentando Grok:', error);
-      
       try {
-        const messages = [
-          { role: 'system', content: this.personaEdu },
-          { role: 'user', content: prompt }
-        ];
-
+        const messages = [{ role: 'system', content: this.personaEdu }, { role: 'user', content: prompt }];
         return await this._callGrokAPI(messages, 0.8, 300);
-
       } catch (grokError) {
-        console.error('Erro com Grok API:', grokError);
-        return 'Desculpe, estou com dificuldades técnicas no momento. Por favor, tente novamente em instantes.';
+        return 'Desculpe, estou com dificuldades técnicas.';
       }
     }
   }
 
   async listarMateriaisParaEscolha(materiais, topico, historico = []) {
     const listaFormatada = materiais.map((m, i) => {
-      const tipo = m.tipo.toLowerCase().includes('video') || m.tipo.toLowerCase().includes('mp4') ? 'vídeo' :
+      const tipo = m.tipo.toLowerCase().includes('video') ? 'vídeo' :
                    m.tipo.toLowerCase().includes('pdf') || m.tipo.toLowerCase().includes('doc') ? 'texto' :
-                   m.tipo.toLowerCase().includes('image') || m.tipo.toLowerCase().includes('png') ? 'imagem' : m.tipo;
+                   m.tipo.toLowerCase().includes('image') ? 'imagem' : m.tipo;
       return `${i + 1}. ${m.arquivo_nome} (${tipo})`;
     }).join('\n');
 
@@ -354,51 +245,34 @@ NÃO liste subtópicos, apenas pergunte o que ele quer saber.`;
 
 O usuário perguntou sobre: ${topico}
 
-MATERIAIS DISPONÍVEIS:
+OPÇÕES:
 ${listaFormatada}
 
-Crie uma resposta conversacional que:
-1. Reconheça que há múltiplos materiais sobre o tópico
-2. Liste as opções numeradas
-3. Pergunte qual material o usuário prefere
-4. NÃO use bullets ou markdown excessivo
-5. Seja natural e direto
+Resposta:
+1. Reconheça múltiplos materiais
+2. Explique brevemente cada um
+3. Liste numerada
+4. Pergunte qual prefere
+5. Fluxo natural
 
-Exemplo: "Sobre ${topico}, tenho ${materiais.length} materiais diferentes:
-1. [Nome] (tipo)
-2. [Nome] (tipo)
-Qual desses você prefere?"`;
+Exemplo: "Sobre ${topico}, tenho dois materiais:
+1. Guia HTML (texto) - introdução completa
+2. Vídeo Aulas (vídeo) - exemplos práticos
+Qual você prefere?"`;
 
     try {
       const result = await this.chatModel.generateContent({
-        contents: [{
-          role: 'user',
-          parts: [{ text: prompt }]
-        }],
-        generationConfig: {
-          temperature: 0.7,
-          maxOutputTokens: 500,
-        }
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.7, maxOutputTokens: 500 }
       });
-
       return result.response.text();
-
     } catch (error) {
-      console.error('Erro com Google API, tentando Grok:', error);
-      
       try {
-        const messages = [
-          { role: 'system', content: this.personaEdu },
-          { role: 'user', content: prompt }
-        ];
-
+        const messages = [{ role: 'system', content: this.personaEdu }, { role: 'user', content: prompt }];
         return await this._callGrokAPI(messages, 0.7, 500);
-
       } catch (grokError) {
-        console.error('Erro com Grok API:', grokError);
-        return 'Desculpe, estou com dificuldades técnicas no momento. Por favor, tente novamente em instantes.';
+        return 'Desculpe, estou com dificuldades técnicas.';
       }
     }
   }
-
 }
