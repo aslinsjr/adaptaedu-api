@@ -1,6 +1,7 @@
 // services/intentDetector.js
 export class IntentDetector {
-  constructor() {
+  constructor(db = null) {
+    this.db = db;
     this.intencoes = {
       CASUAL: 'casual',
       DESCOBERTA: 'descoberta',
@@ -10,6 +11,16 @@ export class IntentDetector {
       CONTINUACAO: 'continuacao',
       CONFIRMACAO: 'confirmacao',
       NIVEL_CONHECIMENTO: 'nivel_conhecimento'
+    };
+
+    this.topicosConhecidos = new Map();
+    this.isInitialized = false;
+
+    this.defaultTopicos = {
+      'html': ['html', 'html5', 'páginas web', 'pagina html', 'construir página', 'criar site'],
+      'programação': ['programação', 'programar', 'codar', 'código', 'desenvolvimento'],
+      'css': ['css', 'estilo', 'estilizar', 'folha de estilo'],
+      'javascript': ['javascript', 'js', 'script', 'interatividade']
     };
 
     this.padroesCasuais = [
@@ -29,7 +40,6 @@ export class IntentDetector {
       /\b(já sei|conheço|domino|avançado|experiente)\b/i
     ];
 
-    // PADRÕES DE DESCOBERTA AMPLIADOS
     this.padroesDescoberta = [
       /\b(o que (você|voce) (pode|sabe|ensina|tem|conhece))\b/i,
       /\b(quais (assuntos|tópicos|topicos|materiais|temas|você tem))\b/i,
@@ -64,185 +74,146 @@ export class IntentDetector {
       'defina', 'define', 'diferença', 'funciona'
     ];
 
-    // NOVO: Palavras-chave de tópicos conhecidos
-    this.topicosConhecidos = {
-      'html': ['html', 'html5', 'páginas web', 'pagina html', 'construir página', 'criar site'],
-      'programação': ['programação', 'programar', 'codar', 'código', 'desenvolvimento'],
-      'css': ['css', 'estilo', 'estilizar', 'folha de estilo'],
-      'javascript': ['javascript', 'js', 'script', 'interatividade']
-    };
+    this.stopWords = new Set(['de', 'do', 'da', 'em', 'para', 'com', 'um', 'uma', 'o', 'a', 'os', 'as', 'e', 'ou', 'que', 'se']);
   }
 
-  detectar(mensagem, contexto = {}) {
-    const { historico = [] } = contexto;
+  async init() {
+    if (this.isInitialized || !this.db) {
+      this.topicosConhecidos = new Map(Object.entries(this.defaultTopicos));
+      this.isInitialized = true;
+      return;
+    }
+
+    try {
+      const chunks = await this.db.collection('chunks')
+        .find({}, { projection: { 'metadados.tags': 1, 'metadados.arquivo_nome': 1, 'metadados.titulo': 1 } })
+        .limit(1000)
+        .toArray();
+
+      const temp = new Map();
+
+      for (const chunk of chunks) {
+        const m = chunk.metadados || {};
+        const tags = Array.isArray(m.tags) ? m.tags.map(t => t.toLowerCase()) : [];
+        const nome = (m.arquivo_nome || '').toLowerCase().replace(/\.[^.]+$/, '');
+        const titulo = (m.titulo || '').toLowerCase();
+
+        const principal = tags[0] || nome.split(/[\s_]+/)[0] || 'geral';
+
+        if (!temp.has(principal)) temp.set(principal, new Set());
+
+        const palavras = [
+          ...tags,
+          ...nome.split(/[\s_]+/).filter(w => w.length > 2),
+          ...titulo.split(/\s+/).filter(w => w.length > 2)
+        ];
+
+        const filtradas = palavras
+          .filter(w => !this.stopWords.has(w) && w.length > 2)
+          .slice(0, 8);
+
+        temp.get(principal).add(...filtradas);
+      }
+
+      this.topicosConhecidos = new Map(
+        Array.from(temp.entries()).map(([k, v]) => [k, Array.from(v)])
+      );
+
+      if (this.topicosConhecidos.size === 0) {
+        this.topicosConhecidos = new Map(Object.entries(this.defaultTopicos));
+      }
+
+      this.isInitialized = true;
+      console.log(`Loaded ${this.topicosConhecidos.size} dynamic topics from MongoDB.`);
+    } catch (err) {
+      console.error('Failed to load topics from MongoDB:', err);
+      this.topicosConhecidos = new Map(Object.entries(this.defaultTopicos));
+      this.isInitialized = true;
+    }
+  }
+
+  detectarTopicoConhecido(msg) {
+    if (!this.isInitialized) return null;
+    const lower = msg.toLowerCase();
+    for (const [topico, palavras] of this.topicosConhecidos) {
+      if (palavras.some(p => lower.includes(p))) return topico;
+    }
+    return null;
+  }
+
+  detectar(mensagem, { historico = [] } = {}) {
     const lower = mensagem.toLowerCase().trim();
 
-    // CONFIRMAÇÃO
-    for (const padrao of this.padroesConfirmacao) {
-      if (padrao.test(lower)) {
-        const contextoAtivo = this.verificarContextoAtivo(historico);
-        if (contextoAtivo.temContexto && contextoAtivo.fragmentosPendentes?.length > 0) {
-          return {
-            intencao: this.intencoes.CONFIRMACAO,
-            confianca: 0.97,
-            metadados: { razao: 'confirmacao_com_fragmentos', fragmentosPendentes: contextoAtivo.fragmentosPendentes }
-          };
+    for (const p of this.padroesConfirmacao) {
+      if (p.test(lower)) {
+        const ctx = this.verificarContextoAtivo(historico);
+        if (ctx.temContexto && ctx.fragmentosPendentes?.length > 0) {
+          return { intencao: this.intencoes.CONFIRMACAO, confianca: 0.97, metadados: { razao: 'confirmacao', fragmentosPendentes: ctx.fragmentosPendentes } };
         }
       }
     }
 
-    // NÍVEL DE CONHECIMENTO
-    for (const padrao of this.padroesNivelConhecimento) {
-      if (padrao.test(lower)) {
-        const contextoAtivo = this.verificarContextoAtivo(historico);
-        if (contextoAtivo.temContexto && contextoAtivo.fragmentosPendentes?.length > 0) {
-          return {
-            intencao: this.intencoes.NIVEL_CONHECIMENTO,
-            confianca: 0.95,
-            metadados: { 
-              razao: 'resposta_nivel_conhecimento',
-              fragmentosPendentes: contextoAtivo.fragmentosPendentes,
-              topico: contextoAtivo.topico
-            }
-          };
+    for (const p of this.padroesNivelConhecimento) {
+      if (p.test(lower)) {
+        const ctx = this.verificarContextoAtivo(historico);
+        if (ctx.temContexto && ctx.fragmentosPendentes?.length > 0) {
+          return { intencao: this.intencoes.NIVEL_CONHECIMENTO, confianca: 0.95, metadados: { razao: 'nivel', topico: ctx.topico } };
         }
       }
     }
 
-    // CASUAL
-    for (const padrao of this.padroesCasuais) {
-      if (padrao.test(lower)) {
-        return { intencao: this.intencoes.CASUAL, confianca: 0.98, metadados: { razao: 'padrao_casual' } };
+    for (const p of this.padroesCasuais) if (p.test(lower)) return { intencao: this.intencoes.CASUAL, confianca: 0.98, metadados: { razao: 'casual' } };
+
+    for (const p of this.padroesDescoberta) if (p.test(lower)) return { intencao: this.intencoes.DESCOBERTA, confianca: 0.96, metadados: { razao: 'descoberta' } };
+
+    const topico = this.detectarTopicoConhecido(lower);
+    if (topico) {
+      return { intencao: this.intencoes.INTERESSE_TOPICO, confianca: 0.92, metadados: { razao: 'topico_dinamico', termoBuscado: topico } };
+    }
+
+    const ctx = this.verificarContextoAtivo(historico);
+    for (const p of this.padroesContinuacao) {
+      if (p.test(lower) && ctx.temContexto) {
+        return { intencao: this.intencoes.CONTINUACAO, confianca: 0.92, metadados: { razao: 'continuacao', topico_contexto: ctx.topico } };
       }
     }
 
-    // DESCOBERTA
-    for (const padrao of this.padroesDescoberta) {
-      if (padrao.test(lower)) {
-        return { 
-          intencao: this.intencoes.DESCOBERTA, 
-          confianca: 0.96, 
-          metadados: { razao: 'padrao_descoberta_ampliado' } 
-        };
-      }
-    }
+    for (const p of this.padroesPreferencia) if (p.test(lower)) return { intencao: this.intencoes.PREFERENCIA, confianca: 0.9, metadados: { razao: 'preferencia' } };
 
-    // DETECÇÃO DE INTERESSE EM TÓPICO ESPECÍFICO (HTML, etc.)
-    const topicoDetectado = this.detectarTopicoConhecido(lower);
-    if (topicoDetectado) {
-      return {
-        intencao: this.intencoes.INTERESSE_TOPICO,
-        confianca: 0.92,
-        metadados: { 
-          razao: 'topico_conhecido', 
-          termoBuscado: topicoDetectado,
-          original: mensagem
-        }
-      };
-    }
-
-    // CONTINUAÇÃO
-    const contextoAtivo = this.verificarContextoAtivo(historico);
-    for (const padrao of this.padroesContinuacao) {
-      if (padrao.test(lower) && contextoAtivo.temContexto) {
-        return {
-          intencao: this.intencoes.CONTINUACAO,
-          confianca: 0.92,
-          metadados: { 
-            razao: 'continuacao_contexto',
-            topico_contexto: contextoAtivo.topico,
-            tipo_anterior: contextoAtivo.tipoResposta
-          }
-        };
-      }
-    }
-
-    // PREFERÊNCIA
-    for (const padrao of this.padroesPreferencia) {
-      if (padrao.test(lower)) {
-        return { intencao: this.intencoes.PREFERENCIA, confianca: 0.9, metadados: { razao: 'mudanca_preferencia' } };
-      }
-    }
-
-    // INTERESSE EM TÓPICO (GENÉRICO)
-    const temPalavrasPergunta = this.palavrasPergunta.some(p => lower.includes(p));
+    const temPergunta = this.palavrasPergunta.some(p => lower.includes(p));
     const palavras = mensagem.split(/\s+/);
-    if (palavras.length <= 7 && !temPalavrasPergunta) {
-      return {
-        intencao: this.intencoes.INTERESSE_TOPICO,
-        confianca: 0.8,
-        metadados: { razao: 'interesse_topico_generico', termoBuscado: mensagem.trim() }
-      };
+    if (palavras.length <= 7 && !temPergunta) {
+      return { intencao: this.intencoes.INTERESSE_TOPICO, confianca: 0.8, metadados: { razao: 'generico', termoBuscado: mensagem.trim() } };
     }
 
-    // CONSULTA PADRÃO
-    const metadados = { razao: 'padrao_default', comprimento: palavras.length };
-    if (palavras.length <= 6 && contextoAtivo.temContexto) {
-      metadados.topico_contexto = contextoAtivo.topico;
+    const metadados = { razao: 'padrao', comprimento: palavras.length };
+    if (palavras.length <= 6 && ctx.temContexto) {
+      metadados.topico_contexto = ctx.topico;
       metadados.usar_contexto_historico = true;
     }
     return { intencao: this.intencoes.CONSULTA, confianca: 0.7, metadados };
   }
 
-  // NOVO: Detectar tópicos conhecidos com palavras-chave
-  detectarTopicoConhecido(mensagem) {
-    for (const [topico, palavrasChave] of Object.entries(this.topicosConhecidos)) {
-      for (const palavra of palavrasChave) {
-        if (mensagem.includes(palavra)) {
-          return topico;
-        }
-      }
-    }
-    return null;
-  }
-
   verificarContextoAtivo(historico) {
-    if (!historico || historico.length === 0) return { temContexto: false };
-    const mensagensRecentes = historico.slice(-3);
-    const ultimaResposta = mensagensRecentes.find(m => m.role === 'assistant');
-    if (!ultimaResposta) return { temContexto: false };
+    if (!historico?.length) return { temContexto: false };
+    const recente = historico.slice(-3).find(m => m.role === 'assistant');
+    if (!recente) return { temContexto: false };
 
-    const tipoResposta = ultimaResposta.metadata?.tipo;
-    const topico = ultimaResposta.metadata?.topico;
-    const fragmentos = ultimaResposta.fragmentos;
-
-    const temContexto = ['consulta', 'engajamento_topico', 'descoberta'].includes(tipoResposta);
-    if (temContexto && fragmentos?.length > 0) {
-      const topicoExtraido = topico || this.extrairTopicoDeResposta(ultimaResposta.content);
-      return { 
-        temContexto: true, 
-        topico: topicoExtraido, 
-        tipoResposta,
-        fragmentosPendentes: fragmentos
-      };
+    const { metadata, fragmentos } = recente;
+    const valido = ['consulta', 'engajamento_topico', 'descoberta'].includes(metadata?.tipo);
+    if (valido && fragmentos?.length > 0) {
+      const topico = metadata?.topico || this.extrairTopicoDeResposta(recente.content);
+      return { temContexto: true, topico, tipoResposta: metadata?.tipo, fragmentosPendentes: fragmentos };
     }
     return { temContexto: false };
   }
 
   extrairTopicoDeResposta(resposta) {
-    if (!resposta) return null;
-    const padroes = [
-      /materiais sobre ([a-záàâãéèêíïóôõöúçñ\s]+)/i,
-      /sobre ([a-záàâãéèêíïóôõöúçñ\s]+)/i,
-      /tópico[:\s]+([a-záàâãéèêíïóôõöúçñ\s]+)/i,
-      /aprender ([a-záàâãéèêíïóôõöúçñ\s]+)/i
-    ];
-    for (const padrao of padroes) {
-      const match = resposta.match(padrao);
-      if (match) return match[1].trim().split(/\s+/).slice(0, 3).join(' ');
+    const padroes = [/sobre ([^.,]+)/i, /tópico[:\s]+([^.,]+)/i, /aprender ([^.,]+)/i];
+    for (const p of padroes) {
+      const m = resposta.match(p);
+      if (m) return m[1].trim().split(/\s+/).slice(0, 3).join(' ');
     }
     return null;
-  }
-
-  extrairTopicoDaMensagem(mensagem) {
-    const lower = mensagem.toLowerCase();
-    const palavras = lower.split(/\s+/).filter(p => p.length > 3);
-    const stopWords = new Set([
-      'como', 'que', 'para', 'sobre', 'qual', 'quais', 'quando',
-      'onde', 'porque', 'quem', 'quanto', 'pela', 'pelo', 'esta',
-      'esse', 'essa', 'isso', 'aqui', 'ali', 'mais', 'menos',
-      'você', 'voce', 'pode', 'sabe', 'ensina', 'conhece'
-    ]);
-    return palavras.filter(p => !stopWords.has(p)).slice(0, 3);
   }
 }
