@@ -20,7 +20,7 @@ export class VectorSearchService {
         $options: 'i' 
       };
     } else if (filtros.tipo) {
-      mongoFiltros['metadados.tipo'] = { $eq: filtros.tipo };
+      mongoFiltros['metadados.tipo'] = filtros.tipo;
     }
     
     if (filtros.fonte) {
