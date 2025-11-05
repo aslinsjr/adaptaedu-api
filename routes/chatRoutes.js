@@ -275,17 +275,29 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
 
       // CONTINUACAO - usa contexto do histórico
       if (deteccaoIntencao.intencao === 'continuacao') {
-        const topicoContexto = deteccaoIntencao.metadados.topico_contexto;
+        const ultimaFoiApresentacao = conversationManager.ultimaRespostaFoiApresentacao(currentConversationId);
         
-        // Enriquece a query com o tópico do contexto
-        const queryEnriquecida = topicoContexto 
-          ? `${topicoContexto} ${mensagem}` 
-          : mensagem;
+        if (ultimaFoiApresentacao) {
+          // Continuação após apresentação: busca conteúdo real usando tags
+          const tagsApresentacao = conversationManager.getTagsApresentacao(currentConversationId);
+          
+          deteccaoIntencao.intencao = 'consulta';
+          deteccaoIntencao.metadados.pos_apresentacao = true;
+          deteccaoIntencao.metadados.tags_busca = tagsApresentacao;
+          deteccaoIntencao.metadados.query_enriquecida = tagsApresentacao.join(' ');
+        } else {
+          const topicoContexto = deteccaoIntencao.metadados.topico_contexto;
+          
+          // Enriquece a query com o tópico do contexto
+          const queryEnriquecida = topicoContexto 
+            ? `${topicoContexto} ${mensagem}` 
+            : mensagem;
 
-        // Força intenção para CONSULTA para processar normalmente
-        deteccaoIntencao.intencao = 'consulta';
-        deteccaoIntencao.metadados.query_enriquecida = queryEnriquecida;
-        deteccaoIntencao.metadados.usou_contexto = true;
+          // Força intenção para CONSULTA para processar normalmente
+          deteccaoIntencao.intencao = 'consulta';
+          deteccaoIntencao.metadados.query_enriquecida = queryEnriquecida;
+          deteccaoIntencao.metadados.usou_contexto = true;
+        }
       }
 
       // CONSULTA COM SMART RANKER
@@ -305,6 +317,11 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
         filtros.tiposSolicitados = tipoMidiaSolicitado.filtros;
       } else if (preferencias.tiposMaterialPreferidos?.length > 0) {
         filtros.tipo = preferencias.tiposMaterialPreferidos[0];
+      }
+
+      // Se pós-apresentação, usa tags da apresentação
+      if (deteccaoIntencao.metadados.pos_apresentacao && deteccaoIntencao.metadados.tags_busca?.length > 0) {
+        filtros.tags = deteccaoIntencao.metadados.tags_busca;
       }
 
       const maxFragmentos = preferencias.limiteFragmentos || 5;
@@ -375,12 +392,13 @@ Responda de forma breve e natural.`;
         queryBusca
       );
 
-      // 2.5. Penaliza documentos já apresentados
+      // 2.5. Penaliza documentos já apresentados (exceto pós-apresentação)
       const documentosApresentados = conversationManager.getDocumentosApresentados(currentConversationId);
-      const fragmentosComPenalidade = smartRanker.aplicarPenalidadeRepeticao(
-        fragmentosRankeados,
-        documentosApresentados
-      );
+      const posApresentacao = deteccaoIntencao.metadados.pos_apresentacao || false;
+      
+      const fragmentosComPenalidade = posApresentacao 
+        ? fragmentosRankeados // Ignora penalidade após apresentação
+        : smartRanker.aplicarPenalidadeRepeticao(fragmentosRankeados, documentosApresentados);
 
       // 3. Agrupamento de contíguos
       const fragmentosAgrupados = smartRanker.agruparChunksContiguos(
@@ -398,8 +416,14 @@ Responda de forma breve e natural.`;
         maxFragmentos
       );
 
-      // 6. Análise de relevância - threshold mais baixo para tipo específico
-      const thresholdRelevancia = tipoMidiaSolicitado ? 0.40 : 0.65;
+      // 6. Análise de relevância - threshold ajustado
+      let thresholdRelevancia = 0.65;
+      if (tipoMidiaSolicitado) {
+        thresholdRelevancia = 0.40;
+      } else if (deteccaoIntencao.metadados.pos_apresentacao) {
+        thresholdRelevancia = 0.30; // Mais permissivo após apresentação
+      }
+      
       const analiseRelevancia = contextAnalyzer.analisarRelevancia(
         fragmentosFinais, 
         thresholdRelevancia
@@ -446,6 +470,11 @@ Responda de forma breve e natural.`;
       const temApresentacao = analiseRelevancia.fragmentosRelevantes.some(f => 
         contextAnalyzer.isConteudoApresentacao(f)
       );
+
+      // Extrai tags se for apresentação
+      const tagsApresentacao = temApresentacao 
+        ? [...new Set(analiseRelevancia.fragmentosRelevantes.flatMap(f => f.metadados.tags || []))]
+        : [];
 
       // Agrupa fragmentos por documento
       const documentosAgrupados = contextAnalyzer.agruparPorDocumento(
@@ -513,7 +542,11 @@ Responda de forma breve e natural.`;
         'assistant',
         resposta,
         analiseRelevancia.fragmentosRelevantes,
-        { tipo: 'consulta' }
+        { 
+          tipo: 'consulta',
+          foi_apresentacao: temApresentacao,
+          tags_apresentacao: tagsApresentacao
+        }
       );
 
       return res.json(ResponseFormatter.formatChatResponse(

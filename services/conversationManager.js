@@ -46,6 +46,15 @@ export class ConversationManager {
     conversa.mensagens.push(mensagem);
     conversa.atualizado_em = new Date();
 
+    // Marca se última resposta foi apresentação
+    if (role === 'assistant' && metadata.foi_apresentacao) {
+      conversa.ultima_foi_apresentacao = true;
+      conversa.tags_apresentacao = metadata.tags_apresentacao || [];
+    } else if (role === 'assistant') {
+      conversa.ultima_foi_apresentacao = false;
+      conversa.tags_apresentacao = [];
+    }
+
     return conversationId;
   }
 
@@ -192,5 +201,15 @@ export class ConversationManager {
     conversa.materiais_pendentes = null;
     conversa.estado = 'ativo';
     conversa.atualizado_em = new Date();
+  }
+
+  ultimaRespostaFoiApresentacao(conversationId) {
+    const conversa = this.conversations.get(conversationId);
+    return conversa?.ultima_foi_apresentacao || false;
+  }
+
+  getTagsApresentacao(conversationId) {
+    const conversa = this.conversations.get(conversationId);
+    return conversa?.tags_apresentacao || [];
   }
 }
