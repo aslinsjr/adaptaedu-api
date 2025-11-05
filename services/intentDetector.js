@@ -10,18 +10,10 @@ export class IntentDetector {
       CONTINUACAO: 'continuacao'
     };
 
-    // Padrões de saudação e interação casual
     this.padroesCasuais = [
       /^(oi|olá|ola|hey|hi|hello|bom dia|boa tarde|boa noite|tudo bem|como vai|beleza|e aí)[\s\?\!]*$/i,
       /^(obrigad[oa]|valeu|legal|ok|entendi|certo)[\s\?\!]*$/i,
       /^edu/i
-    ];
-
-    this.padroesContinuacao = [
-      /^(vamos|continue|prossiga|pode continuar|me explica|explica|conta mais|fala mais)/i,
-      /^(legal|ótimo|perfeito|show|beleza|certo|ok|sim),?\s+(vamos|continue|prossiga|começa|começar|me explica)/i,
-      /^(vamos lá|bora|pode ir|vai)/i,
-      /^(e (aí|ai|agora|então))/i
     ];
 
     this.padroesDescoberta = [
@@ -31,6 +23,15 @@ export class IntentDetector {
       /\b(mostre|liste|apresente).*(disponível|disponiveis|materiais|assuntos)\b/i,
       /\b(explore|conhecer|descobrir).*(materiais|conteúdos|conteudos)\b/i,
       /\b(ensinar|aprender|estudar)\b.*\b(o que|quais)\b/i
+    ];
+
+    this.padroesContinuacao = [
+      /^(vamos|continue|prossiga|pode continuar|me explica|explica|conta mais|fala mais)/i,
+      /^(legal|ótimo|perfeito|show|beleza|certo|ok|sim),?\s+(vamos|continue|prossiga|começa|começar|me explica)/i,
+      /^(vamos lá|bora|pode ir|vai)/i,
+      /^(e (aí|ai|agora|então))/i,
+      /^(começar|iniciar).*(básico|basico|introdução|iniciante)/i,
+      /^(pode|posso).*(começar|iniciar).*(básico|basico)/i
     ];
 
     this.padroesPreferencia = [
@@ -51,25 +52,17 @@ export class IntentDetector {
     const { historico = [] } = contexto;
     const lower = mensagem.toLowerCase().trim();
 
-    // CASUAL: Saudação ou menção ao nome
+    // CASUAL
     for (const padrao of this.padroesCasuais) {
       if (padrao.test(lower)) {
-        return {
-          intencao: this.intencoes.CASUAL,
-          confianca: 0.98,
-          metadados: { razao: 'padrao_casual' }
-        };
+        return { intencao: this.intencoes.CASUAL, confianca: 0.98, metadados: { razao: 'padrao_casual' } };
       }
     }
 
-    // DESCOBERTA: Pergunta explícita sobre o que pode ensinar
+    // DESCOBERTA
     for (const padrao of this.padroesDescoberta) {
       if (padrao.test(lower)) {
-        return {
-          intencao: this.intencoes.DESCOBERTA,
-          confianca: 0.95,
-          metadados: { razao: 'padrao_descoberta' }
-        };
+        return { intencao: this.intencoes.DESCOBERTA, confianca: 0.95, metadados: { razao: 'padrao_descoberta' } };
       }
     }
 
@@ -79,7 +72,7 @@ export class IntentDetector {
       if (padrao.test(lower) && contextoAtivo.temContexto) {
         return {
           intencao: this.intencoes.CONTINUACAO,
-          confianca: 0.9,
+          confianca: 0.92,
           metadados: { 
             razao: 'continuacao_contexto',
             topico_contexto: contextoAtivo.topico,
@@ -92,68 +85,42 @@ export class IntentDetector {
     // PREFERÊNCIA
     for (const padrao of this.padroesPreferencia) {
       if (padrao.test(lower)) {
-        return {
-          intencao: this.intencoes.PREFERENCIA,
-          confianca: 0.9,
-          metadados: { razao: 'mudanca_preferencia' }
-        };
+        return { intencao: this.intencoes.PREFERENCIA, confianca: 0.9, metadados: { razao: 'mudanca_preferencia' } };
       }
     }
 
-    // INTERESSE EM TÓPICO: Mensagem curta, sem pergunta, possível nome de tópico
+    // INTERESSE EM TÓPICO
     const temPalavrasPergunta = this.palavrasPergunta.some(p => lower.includes(p));
     const palavras = mensagem.split(/\s+/);
     if (palavras.length <= 5 && !temPalavrasPergunta) {
       return {
         intencao: this.intencoes.INTERESSE_TOPICO,
         confianca: 0.8,
-        metadados: { 
-          razao: 'interesse_topico',
-          termoBuscado: mensagem.trim()
-        }
+        metadados: { razao: 'interesse_topico', termoBuscado: mensagem.trim() }
       };
     }
 
     // CONSULTA PADRÃO
-    const metadados = { 
-      razao: 'padrao_default',
-      comprimento: palavras.length 
-    };
-
+    const metadados = { razao: 'padrao_default', comprimento: palavras.length };
     if (palavras.length <= 6 && contextoAtivo.temContexto) {
       metadados.topico_contexto = contextoAtivo.topico;
       metadados.usar_contexto_historico = true;
     }
-
-    return {
-      intencao: this.intencoes.CONSULTA,
-      confianca: 0.7,
-      metadados
-    };
+    return { intencao: this.intencoes.CONSULTA, confianca: 0.7, metadados };
   }
 
   verificarContextoAtivo(historico) {
     if (!historico || historico.length === 0) return { temContexto: false };
-
     const mensagensRecentes = historico.slice(-2);
     const ultimaResposta = mensagensRecentes[mensagensRecentes.length - 1];
-    
     if (ultimaResposta?.role !== 'assistant') return { temContexto: false };
-
     const tipoResposta = ultimaResposta.metadata?.tipo;
     const topico = ultimaResposta.metadata?.topico;
-
     const temContexto = ['descoberta', 'engajamento_topico', 'consulta', 'lista_materiais'].includes(tipoResposta);
-
     if (temContexto) {
       const topicoExtraido = topico || this.extrairTopicoDeResposta(ultimaResposta.content);
-      return {
-        temContexto: true,
-        topico: topicoExtraido,
-        tipoResposta: tipoResposta
-      };
+      return { temContexto: true, topico: topicoExtraido, tipoResposta };
     }
-
     return { temContexto: false };
   }
 
@@ -167,23 +134,9 @@ export class IntentDetector {
     ];
     for (const padrao of padroes) {
       const match = resposta.match(padrao);
-      if (match) {
-        return match[1].trim().split(/\s+/).slice(0, 3).join(' ');
-      }
+      if (match) return match[1].trim().split(/\s+/).slice(0, 3).join(' ');
     }
     return null;
-  }
-
-  extrairTermoEspecifico(mensagem) {
-    const lower = mensagem.toLowerCase();
-    const semPergunta = lower
-      .replace(/\b(o que|por que|porque|qual|quais|quando|onde|como)\b/gi, '')
-      .replace(/\b(você|voce|vc)\b/gi, '')
-      .replace(/\b(pode|sabe|ensina|conhece)\b/gi, '')
-      .replace(/\b(sobre|acerca)\b/gi, '')
-      .trim();
-    const palavrasRestantes = semPergunta.split(/\s+/).filter(p => p.length > 2);
-    return palavrasRestantes.length > 0 ? palavrasRestantes.join(' ') : null;
   }
 
   extrairTopicoDaMensagem(mensagem) {
@@ -195,7 +148,6 @@ export class IntentDetector {
       'esse', 'essa', 'isso', 'aqui', 'ali', 'mais', 'menos',
       'você', 'voce', 'pode', 'sabe', 'ensina', 'conhece'
     ]);
-    const topicos = palavras.filter(p => !stopWords.has(p));
-    return topicos.slice(0, 3);
+    return palavras.filter(p => !stopWords.has(p)).slice(0, 3);
   }
 }
