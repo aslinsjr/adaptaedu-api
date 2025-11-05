@@ -8,24 +8,37 @@ export class VectorSearchService {
     const queryEmbedding = await this.ai.createEmbedding(query);
     
     const mongoFiltros = {};
-    
-    if (filtros.tags && filtros.tags.length > 0) {
+
+    // Filtro por tags: $in é suportado
+    if (filtros.tags && Array.isArray(filtros.tags) && filtros.tags.length > 0) {
       mongoFiltros['metadados.tags'] = { $in: filtros.tags };
     }
-    
-    // Suporta filtro de múltiplos tipos (quando usuário pede tipo específico)
-    if (filtros.tiposSolicitados && filtros.tiposSolicitados.length > 0) {
-      mongoFiltros['metadados.tipo'] = { 
-        $regex: filtros.tiposSolicitados.join('|'), 
+
+    // Filtro por múltiplos tipos: usar $in com RegExp (case-insensitive)
+    if (filtros.tiposSolicitados && Array.isArray(filtros.tiposSolicitados) && filtros.tiposSolicitados.length > 0) {
+      const tiposValidos = filtros.tiposSolicitados
+        .filter(t => typeof t === 'string' && t.trim().length > 0)
+        .map(t => new RegExp(`^${t.trim()}$`, 'i')); // regex exato, case-insensitive
+
+      if (tiposValidos.length > 0) {
+        mongoFiltros['metadados.tipo'] = { $in: tiposValidos };
+      }
+    }
+    // Filtro por tipo único: usar $eq
+    else if (filtros.tipo && typeof filtros.tipo === 'string' && filtros.tipo.trim()) {
+      mongoFiltros['metadados.tipo'] = { $eq: filtros.tipo.trim() };
+    }
+
+    // Filtro por fonte: $regex com opções é permitido
+    if (filtros.fonte && typeof filtros.fonte === 'string' && filtros.fonte.trim()) {
+      mongoFiltros['metadados.fonte'] = { 
+        $regex: filtros.fonte.trim(), 
         $options: 'i' 
       };
-    } else if (filtros.tipo) {
-      mongoFiltros['metadados.tipo'] = filtros.tipo;
     }
-    
-    if (filtros.fonte) {
-      mongoFiltros['metadados.fonte'] = { $regex: filtros.fonte, $options: 'i' };
-    }
+
+    // Log opcional para debug (remova em produção)
+    // console.log('Filtros aplicados no $vectorSearch:', JSON.stringify(mongoFiltros, null, 2));
 
     const resultados = await this.mongo.searchByVector(
       queryEmbedding, 
