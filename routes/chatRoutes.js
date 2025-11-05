@@ -57,7 +57,7 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
         preferencias = conversationManager.getPreferencias(currentConversationId);
       }
 
-      const historico = conversationManager.getHistorico(currentConversationId, 5);
+      const historico = conversationManager.getHistorico(currentConversationId, 7);
       const materiaisPendentes = conversationManager.getMateriaisPendentes(currentConversationId);
 
       // --- Tratamento de escolha de material ---
@@ -98,6 +98,35 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
 
       // Detecta intenção
       const deteccaoIntencao = intentDetector.detectar(mensagem, { historico });
+
+      // --- CONFIRMAÇÃO DE CONTINUAÇÃO (ex: "Vamos sim") ---
+      if (deteccaoIntencao.intencao === 'confirmacao') {
+        const contextoAtivo = intentDetector.verificarContextoAtivo(historico);
+        if (contextoAtivo.temContexto && contextoAtivo.fragmentosPendentes?.length > 0) {
+          const fragmentos = contextoAtivo.fragmentosPendentes;
+          const resposta = await ai.responderComContexto(
+            mensagem,
+            historico,
+            fragmentos,
+            preferencias
+          );
+          const documentosUsados = [...new Set(fragmentos.map(f => f.metadados.arquivo_url))];
+          conversationManager.registrarDocumentosApresentados(currentConversationId, documentosUsados);
+          conversationManager.adicionarMensagem(
+            currentConversationId,
+            'assistant',
+            resposta,
+            fragmentos,
+            { tipo: 'consulta', continuacao_confirmada: true }
+          );
+          return res.json(ResponseFormatter.formatChatResponse(
+            currentConversationId,
+            resposta,
+            fragmentos,
+            { tipo: 'consulta', continuacao_confirmada: true }
+          ));
+        }
+      }
 
       // --- CASUAL ---
       if (deteccaoIntencao.intencao === 'casual') {
@@ -160,7 +189,7 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
       // --- CONTINUAÇÃO (ex: "começar pelo básico") ---
       if (deteccaoIntencao.intencao === 'continuacao') {
         const topicoContexto = deteccaoIntencao.metadados.topico_contexto || '';
-        const queryBusca = `${topicoContexto} básico introdução iniciante`;
+        const queryBusca = `${topicoContexto} básico introdução iniciante estrutura html`;
         const documentosApresentados = conversationManager.getDocumentosApresentados(currentConversationId);
         let fragmentosBrutos = await vectorSearch.buscarFragmentosRelevantes(queryBusca, {}, 20);
         fragmentosBrutos = fragmentosBrutos.filter(f => !documentosApresentados.includes(f.metadados.arquivo_url));

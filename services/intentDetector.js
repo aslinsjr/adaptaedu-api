@@ -7,13 +7,19 @@ export class IntentDetector {
       CONSULTA: 'consulta',
       PREFERENCIA: 'preferencia',
       INTERESSE_TOPICO: 'interesse_topico',
-      CONTINUACAO: 'continuacao'
+      CONTINUACAO: 'continuacao',
+      CONFIRMACAO: 'confirmacao'
     };
 
     this.padroesCasuais = [
       /^(oi|olá|ola|hey|hi|hello|bom dia|boa tarde|boa noite|tudo bem|como vai|beleza|e aí)[\s\?\!]*$/i,
       /^(obrigad[oa]|valeu|legal|ok|entendi|certo)[\s\?\!]*$/i,
       /^edu/i
+    ];
+
+    this.padroesConfirmacao = [
+      /^(sim|claro|ok|beleza|perfeito|ótimo|vamos|com certeza|pode|quero|quero sim|quero ver|quero aprender)/i,
+      /^(vamos sim|vamos lá|bora|dale|dale sim)/i
     ];
 
     this.padroesDescoberta = [
@@ -51,6 +57,20 @@ export class IntentDetector {
   detectar(mensagem, contexto = {}) {
     const { historico = [] } = contexto;
     const lower = mensagem.toLowerCase().trim();
+
+    // CONFIRMAÇÃO
+    for (const padrao of this.padroesConfirmacao) {
+      if (padrao.test(lower)) {
+        const contextoAtivo = this.verificarContextoAtivo(historico);
+        if (contextoAtivo.temContexto && contextoAtivo.fragmentosPendentes?.length > 0) {
+          return {
+            intencao: this.intencoes.CONFIRMACAO,
+            confianca: 0.97,
+            metadados: { razao: 'confirmacao_com_fragmentos', fragmentosPendentes: contextoAtivo.fragmentosPendentes }
+          };
+        }
+      }
+    }
 
     // CASUAL
     for (const padrao of this.padroesCasuais) {
@@ -111,15 +131,23 @@ export class IntentDetector {
 
   verificarContextoAtivo(historico) {
     if (!historico || historico.length === 0) return { temContexto: false };
-    const mensagensRecentes = historico.slice(-2);
-    const ultimaResposta = mensagensRecentes[mensagensRecentes.length - 1];
-    if (ultimaResposta?.role !== 'assistant') return { temContexto: false };
+    const mensagensRecentes = historico.slice(-3);
+    const ultimaResposta = mensagensRecentes.find(m => m.role === 'assistant');
+    if (!ultimaResposta) return { temContexto: false };
+
     const tipoResposta = ultimaResposta.metadata?.tipo;
     const topico = ultimaResposta.metadata?.topico;
-    const temContexto = ['descoberta', 'engajamento_topico', 'consulta', 'lista_materiais'].includes(tipoResposta);
-    if (temContexto) {
+    const fragmentos = ultimaResposta.fragmentos;
+
+    const temContexto = ['consulta', 'engajamento_topico', 'descoberta'].includes(tipoResposta);
+    if (temContexto && fragmentos?.length > 0) {
       const topicoExtraido = topico || this.extrairTopicoDeResposta(ultimaResposta.content);
-      return { temContexto: true, topico: topicoExtraido, tipoResposta };
+      return { 
+        temContexto: true, 
+        topico: topicoExtraido, 
+        tipoResposta,
+        fragmentosPendentes: fragmentos
+      };
     }
     return { temContexto: false };
   }
