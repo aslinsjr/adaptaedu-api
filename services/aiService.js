@@ -343,12 +343,12 @@ Sua resposta:`;
     }
     
     // Remover saudações desnecessárias no meio da conversa
-    const saudações = [
+    const saudacoes = [
       /\b(Olá|Ola|Oi|Hey|Hi|Hello)[,!]\s*/gi,
       /\b(Que bom|Que prazer)[,!]\s*/gi
     ];
     
-    saudações.forEach(saudacao => {
+    saudacoes.forEach(saudacao => {
       limpa = limpa.replace(saudacao, '');
     });
     

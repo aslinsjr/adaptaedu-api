@@ -1,4 +1,4 @@
-// server.js (ajuste na importação)
+// server.js
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
@@ -14,8 +14,24 @@ import { createSearchRoutes } from './routes/searchRoutes.js';
 
 const app = express();
 
-app.use(express.json());
+// Configuração UTF-8
+app.use(express.json({ 
+  limit: '10mb',
+  verify: (req, res, buf, encoding) => {
+    if (buf && buf.length) {
+      req.rawBody = buf.toString('utf8');
+    }
+  }
+}));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cors());
+
+// Set UTF-8 for responses
+app.use((req, res, next) => {
+  res.charset = 'utf-8';
+  res.set('Content-Type', 'application/json; charset=utf-8');
+  next();
+});
 
 const mongo = new MongoService();
 const firebase = new FirebaseService();

@@ -1,7 +1,66 @@
+// services/vectorSearchService.js
 export class VectorSearchService {
   constructor(mongoService, aiService) {
     this.mongo = mongoService;
     this.ai = aiService;
+  }
+
+  // Normalização de tipos para garantir consistência
+  normalizeTipo(tipo) {
+    if (!tipo || typeof tipo !== 'string') return null;
+    
+    const tipoLower = tipo.trim().toLowerCase();
+    
+    // Mapeamento de tipos para valores padronizados
+    const mapeamento = {
+      // PDFs e documentos texto
+      'pdf': 'pdf',
+      'doc': 'doc',
+      'docx': 'docx',
+      'txt': 'txt',
+      'texto': 'txt',
+      'document': 'doc',
+      
+      // Vídeos
+      'video': 'video',
+      'vídeo': 'video',
+      'mp4': 'video',
+      'avi': 'video',
+      'mkv': 'video',
+      'mov': 'video',
+      
+      // Imagens
+      'imagem': 'imagem',
+      'image': 'imagem',
+      'img': 'imagem',
+      'png': 'imagem',
+      'jpg': 'imagem',
+      'jpeg': 'imagem',
+      'gif': 'imagem',
+      'webp': 'imagem',
+      
+      // Áudio
+      'audio': 'audio',
+      'áudio': 'audio',
+      'mp3': 'audio',
+      'wav': 'audio',
+      'ogg': 'audio',
+      
+      // Outros
+      'apresentação': 'pptx',
+      'apresentacao': 'pptx',
+      'ppt': 'pptx',
+      'pptx': 'pptx',
+      'slides': 'pptx',
+      
+      'planilha': 'xlsx',
+      'excel': 'xlsx',
+      'xls': 'xlsx',
+      'xlsx': 'xlsx',
+      'csv': 'csv'
+    };
+    
+    return mapeamento[tipoLower] || tipoLower;
   }
 
   async buscarFragmentosRelevantes(query, filtros = {}, limite = 5) {
@@ -14,20 +73,29 @@ export class VectorSearchService {
       mongoFiltros['metadados.tags'] = { $in: filtros.tags };
     }
 
-    // === FILTRO POR MÚLTIPLOS TIPOS (usar $in com strings) ===
+    // === FILTRO POR MÚLTIPLOS TIPOS (com normalização) ===
     if (filtros.tiposSolicitados && Array.isArray(filtros.tiposSolicitados) && filtros.tiposSolicitados.length > 0) {
-      const tiposValidos = filtros.tiposSolicitados
-        .map(t => typeof t === 'string' ? t.trim().toLowerCase() : null)
-        .filter(t => t && t.length > 0);
+      const tiposNormalizados = filtros.tiposSolicitados
+        .map(t => this.normalizeTipo(t))
+        .filter(t => t !== null);
 
-      if (tiposValidos.length > 0) {
-        // Usa $in com strings (case-sensitive por padrão)
-        mongoFiltros['metadados.tipo'] = { $in: tiposValidos };
+      if (tiposNormalizados.length > 0) {
+        // Criar regex case-insensitive para cada tipo
+        mongoFiltros['$or'] = tiposNormalizados.map(tipo => ({
+          'metadados.tipo': { 
+            $regex: new RegExp(`^${tipo}$`, 'i') 
+          }
+        }));
       }
     }
-    // === FILTRO POR TIPO ÚNICO ===
-    else if (filtros.tipo && typeof filtros.tipo === 'string' && filtros.tipo.trim()) {
-      mongoFiltros['metadados.tipo'] = { $eq: filtros.tipo.trim().toLowerCase() };
+    // === FILTRO POR TIPO ÚNICO (com normalização) ===
+    else if (filtros.tipo && typeof filtros.tipo === 'string') {
+      const tipoNormalizado = this.normalizeTipo(filtros.tipo);
+      if (tipoNormalizado) {
+        mongoFiltros['metadados.tipo'] = { 
+          $regex: new RegExp(`^${tipoNormalizado}$`, 'i') 
+        };
+      }
     }
 
     // === FILTRO POR FONTE (com regex) ===
@@ -38,8 +106,23 @@ export class VectorSearchService {
       };
     }
 
+    // === FILTRO POR ARQUIVO URL ===
+    if (filtros.arquivo_url && typeof filtros.arquivo_url === 'string') {
+      mongoFiltros['metadados.arquivo_url'] = filtros.arquivo_url;
+    }
+
+    // === FILTRO POR ARQUIVO NOME ===
+    if (filtros.arquivo_nome && typeof filtros.arquivo_nome === 'string') {
+      mongoFiltros['metadados.arquivo_nome'] = {
+        $regex: filtros.arquivo_nome.trim(),
+        $options: 'i'
+      };
+    }
+
     // Debug (remova em produção)
-    // console.log('Filtros Vector Search:', JSON.stringify(mongoFiltros, null, 2));
+    if (process.env.DEBUG === 'true') {
+      console.log('Filtros Vector Search:', JSON.stringify(mongoFiltros, null, 2));
+    }
 
     const resultados = await this.mongo.searchByVector(
       queryEmbedding, 
