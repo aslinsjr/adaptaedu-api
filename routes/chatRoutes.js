@@ -44,6 +44,51 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
   const discoveryService = new DiscoveryService(mongo);
   const smartRanker = new SmartRanker();
 
+  // Endpoint para registrar mensagem inicial automática
+  router.post('/chat/init', async (req, res) => {
+    try {
+      const { mensagem } = req.body;
+      
+      const conversationId = conversationManager.criarConversa();
+      
+      // Mensagem inicial padrão do Edu
+      const mensagemInicial = mensagem || `Olá! 👋 Sou o Edu, seu assistente educacional inteligente!
+
+Estou aqui para ajudar você a aprender de forma personalizada e interativa. Posso:
+
+💡 Responder suas dúvidas sobre diversos assuntos
+📚 Fornecer materiais didáticos relevantes
+🎯 Adaptar as explicações ao seu nível de conhecimento
+
+Como posso te ajudar hoje? Pode fazer qualquer pergunta ou me dizer sobre o que você gostaria de aprender!`;
+      
+      // Registrar mensagem inicial
+      conversationManager.adicionarMensagem(
+        conversationId,
+        'assistant',
+        mensagemInicial,
+        [],
+        { 
+          tipo: 'boas_vindas', 
+          automatica: true,
+          timestamp: new Date()
+        }
+      );
+      
+      // Marcar estado como aguardando primeira interação
+      conversationManager.setEstado(conversationId, 'aguardando_primeira_interacao');
+      
+      return res.json({
+        conversationId,
+        status: 'ready',
+        mensagem: mensagemInicial
+      });
+    } catch (error) {
+      console.error('Erro ao inicializar chat:', error);
+      res.status(500).json(ResponseFormatter.formatError(error.message));
+    }
+  });
+
   router.post('/chat', async (req, res) => {
     try {
       const { mensagem, conversationId } = req.body;
@@ -52,16 +97,32 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
       let currentConversationId = conversationId;
       let preferencias = null;
       
+      // Verificar se é primeira interação real do usuário
+      const primeiraInteracaoReal = conversationManager.isPrimeiraInteracaoReal(currentConversationId);
+      
       // Gerenciar conversa e preferências
       if (currentConversationId) {
         preferencias = conversationManager.getPreferencias(currentConversationId);
       }
       if (!preferencias) {
-        currentConversationId = conversationManager.criarConversa();
+        if (!currentConversationId) {
+          // Se não tem ID, criar conversa sem mensagem inicial (compatibilidade)
+          currentConversationId = conversationManager.criarConversa();
+        }
         preferencias = conversationManager.getPreferencias(currentConversationId);
       }
 
-      // OBTER CONTEXTO COMPLETO (NOVO)
+      // Se é primeira interação real, processar preferências e mudar estado
+      if (primeiraInteracaoReal) {
+        const preferenciasDetectadas = dialogueManager.detectarPreferenciaImplicita(mensagem);
+        if (preferenciasDetectadas) {
+          conversationManager.atualizarPreferencias(currentConversationId, preferenciasDetectadas);
+          preferencias = { ...preferencias, ...preferenciasDetectadas };
+        }
+        conversationManager.setEstado(currentConversationId, 'ativo');
+      }
+
+      // OBTER CONTEXTO COMPLETO
       const contextoCompleto = conversationManager.getContextoCompleto(currentConversationId);
 
       // --- Tratamento de escolha de material pendente ---
@@ -83,7 +144,6 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
           conversationManager.registrarDocumentosApresentados(currentConversationId, documentosUsados);
           conversationManager.limparMateriaisPendentes(currentConversationId);
           
-          // ATUALIZAR CONTEXTO CONVERSACIONAL (NOVO)
           conversationManager.atualizarContextoConversacional(
             currentConversationId,
             mensagem,
@@ -100,7 +160,7 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
             { 
               tipo: 'consulta', 
               escolha_processada: true,
-              intencaoDetectada: 'escolha_material' // ← Registrar intenção
+              intencaoDetectada: 'escolha_material'
             }
           );
           
@@ -118,7 +178,7 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
       // Adicionar mensagem do usuário ao histórico
       conversationManager.adicionarMensagem(currentConversationId, 'user', mensagem);
 
-      // DETECTAR INTENÇÃO COM CONTEXTO COMPLETO (NOVO)
+      // DETECTAR INTENÇÃO COM CONTEXTO COMPLETO
       const deteccaoIntencao = intentDetector.detectar(mensagem, contextoCompleto);
 
       // Registrar intenção detectada na mensagem do usuário
@@ -142,7 +202,6 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
           const documentosUsados = [...new Set(fragmentos.map(f => f.metadados.arquivo_url))];
           conversationManager.registrarDocumentosApresentados(currentConversationId, documentosUsados);
           
-          // ATUALIZAR CONTEXTO (NOVO)
           conversationManager.atualizarContextoConversacional(
             currentConversationId,
             mensagem,
@@ -172,11 +231,10 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
         }
       }
 
-      // FOLLOW-UP E REEXPLICAÇÃO (NOVO)
+      // FOLLOW-UP E REEXPLICAÇÃO
       if (deteccaoIntencao.intencao === 'follow_up' || deteccaoIntencao.intencao === 'reexplicacao') {
         const contextoAtivo = contextoCompleto.contextoConversacional;
         if (contextoAtivo?.topicoAtual) {
-          // Buscar mais materiais ou reexplicar
           const queryBusca = `${contextoAtivo.topicoAtual} ${mensagem}`;
           const documentosApresentados = conversationManager.getDocumentosApresentados(currentConversationId);
           
@@ -198,7 +256,6 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
             const documentosUsados = [...new Set(fragmentosFinais.map(f => f.metadados.arquivo_url))];
             conversationManager.registrarDocumentosApresentados(currentConversationId, documentosUsados);
             
-            // ATUALIZAR CONTEXTO (NOVO)
             conversationManager.atualizarContextoConversacional(
               currentConversationId,
               mensagem,
@@ -237,7 +294,6 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
           const preferenciasAtualizadas = { ...preferencias, profundidade: nivel };
           conversationManager.atualizarPreferencias(currentConversationId, preferenciasAtualizadas);
 
-          // Buscar materiais adequados ao nível
           const queryBusca = `${contextoAtivo.topicoAtual} ${nivel === 'basico' ? 'introdução básico iniciante' : 'avançado técnico'}`;
           const documentosApresentados = conversationManager.getDocumentosApresentados(currentConversationId);
           
@@ -259,7 +315,6 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
             const documentosUsados = [...new Set(fragmentosFinais.map(f => f.metadados.arquivo_url))];
             conversationManager.registrarDocumentosApresentados(currentConversationId, documentosUsados);
             
-            // ATUALIZAR CONTEXTO (NOVO)
             conversationManager.atualizarContextoConversacional(
               currentConversationId,
               mensagem,
@@ -298,7 +353,6 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
           `${ai.personaEdu}\n\nResponda de forma amigável e natural. Mantenha o contexto da conversa anterior se relevante.`
         );
         
-        // ATUALIZAR CONTEXTO (NOVO)
         conversationManager.atualizarContextoConversacional(
           currentConversationId,
           mensagem,
@@ -343,7 +397,6 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
         
         const resposta = await ai.apresentarTopicos(topicosComTiposAmigaveis, tiposMaterialAmigaveis, contextoCompleto.historico);
         
-        // ATUALIZAR CONTEXTO (NOVO)
         conversationManager.atualizarContextoConversacional(
           currentConversationId,
           mensagem,
@@ -386,7 +439,6 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
           const tiposAmigaveis = mapearTiposParaAmigavel(topicoInfo.tipos_material);
           const resposta = await ai.gerarEngajamentoTopico(topicoInfo.topico, tiposAmigaveis, contextoCompleto.historico);
           
-          // ATUALIZAR CONTEXTO (NOVO)
           conversationManager.atualizarContextoConversacional(
             currentConversationId,
             mensagem,
@@ -505,7 +557,6 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
         const documentosUsados = [...new Set(analiseRelevancia.fragmentosRelevantes.map(f => f.metadados.arquivo_url))];
         conversationManager.registrarDocumentosApresentados(currentConversationId, documentosUsados);
         
-        // ATUALIZAR CONTEXTO (NOVO)
         conversationManager.atualizarContextoConversacional(
           currentConversationId,
           mensagem,
@@ -538,7 +589,6 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
       let queryBusca = mensagem;
       const contextoConv = contextoCompleto.contextoConversacional;
       
-      // Usar contexto do tópico atual se relevante
       if (contextoConv?.topicoAtual && deteccaoIntencao.metadados.usar_contexto_historico) {
         queryBusca = `${contextoConv.topicoAtual} ${mensagem}`;
       }
@@ -628,7 +678,6 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
 
       const documentosAgrupados = contextAnalyzer.agruparPorDocumento(analiseRelevancia.fragmentosRelevantes);
       
-      // Oferecer escolha se múltiplos documentos relevantes
       if (documentosAgrupados.length > 1 && !contextoConv?.aguardandoResposta) {
         const opcoes = documentosAgrupados.map(doc => ({
           arquivo_url: doc.arquivo_url,
@@ -646,7 +695,6 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
           query_usada: queryBusca 
         });
         
-        // ATUALIZAR CONTEXTO (NOVO)
         conversationManager.atualizarContextoConversacional(
           currentConversationId,
           mensagem,
@@ -682,7 +730,6 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
         ));
       }
 
-      // Resposta direta com único documento
       const resposta = await ai.responderComContexto(
         mensagem,
         contextoCompleto.historico,
@@ -693,7 +740,6 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
       const documentosUsados = [...new Set(analiseRelevancia.fragmentosRelevantes.map(f => f.metadados.arquivo_url))];
       conversationManager.registrarDocumentosApresentados(currentConversationId, documentosUsados);
       
-      // ATUALIZAR CONTEXTO (NOVO) - Registrar tópico atual
       const topicoDetectado = intentDetector.extrairTopicoDaMensagem(mensagem).join(' ') || 
                              contextoConv?.topicoAtual ||
                              intentDetector.extrairTopicoDeResposta(resposta);
@@ -735,11 +781,10 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
     } catch (error) {
       console.error('Erro no chat:', error);
       
-      // Registrar erro no contexto
-      if (currentConversationId) {
+      if (req.body.conversationId) {
         conversationManager.atualizarContextoConversacional(
-          currentConversationId,
-          mensagem,
+          req.body.conversationId,
+          req.body.mensagem,
           'Desculpe, ocorreu um erro.',
           'erro',
           { tipo: 'erro' }
@@ -750,7 +795,7 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
     }
   });
 
-  // Rotas de gerenciamento (mantidas iguais)
+  // Rotas de gerenciamento
   router.get('/conversas/:conversationId', async (req, res) => {
     try {
       const { conversationId } = req.params;
