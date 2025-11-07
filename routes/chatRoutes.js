@@ -44,51 +44,6 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
   const discoveryService = new DiscoveryService(mongo);
   const smartRanker = new SmartRanker();
 
-  // Endpoint para registrar mensagem inicial automática
-  router.post('/chat/init', async (req, res) => {
-    try {
-      const { mensagem } = req.body;
-      
-      const conversationId = conversationManager.criarConversa();
-      
-      // Mensagem inicial padrão do Edu
-      const mensagemInicial = mensagem || `Olá! 👋 Sou o Edu, seu assistente educacional inteligente!
-
-Estou aqui para ajudar você a aprender de forma personalizada e interativa. Posso:
-
-💡 Responder suas dúvidas sobre diversos assuntos
-📚 Fornecer materiais didáticos relevantes
-🎯 Adaptar as explicações ao seu nível de conhecimento
-
-Como posso te ajudar hoje? Pode fazer qualquer pergunta ou me dizer sobre o que você gostaria de aprender!`;
-      
-      // Registrar mensagem inicial
-      conversationManager.adicionarMensagem(
-        conversationId,
-        'assistant',
-        mensagemInicial,
-        [],
-        { 
-          tipo: 'boas_vindas', 
-          automatica: true,
-          timestamp: new Date()
-        }
-      );
-      
-      // Marcar estado como aguardando primeira interação
-      conversationManager.setEstado(conversationId, 'aguardando_primeira_interacao');
-      
-      return res.json({
-        conversationId,
-        status: 'ready',
-        mensagem: mensagemInicial
-      });
-    } catch (error) {
-      console.error('Erro ao inicializar chat:', error);
-      res.status(500).json(ResponseFormatter.formatError(error.message));
-    }
-  });
-
   router.post('/chat', async (req, res) => {
     try {
       const { mensagem, conversationId } = req.body;
@@ -97,32 +52,16 @@ Como posso te ajudar hoje? Pode fazer qualquer pergunta ou me dizer sobre o que 
       let currentConversationId = conversationId;
       let preferencias = null;
       
-      // Verificar se é primeira interação real do usuário
-      const primeiraInteracaoReal = conversationManager.isPrimeiraInteracaoReal(currentConversationId);
-      
       // Gerenciar conversa e preferências
       if (currentConversationId) {
         preferencias = conversationManager.getPreferencias(currentConversationId);
       }
       if (!preferencias) {
-        if (!currentConversationId) {
-          // Se não tem ID, criar conversa sem mensagem inicial (compatibilidade)
-          currentConversationId = conversationManager.criarConversa();
-        }
+        currentConversationId = conversationManager.criarConversa();
         preferencias = conversationManager.getPreferencias(currentConversationId);
       }
 
-      // Se é primeira interação real, processar preferências e mudar estado
-      if (primeiraInteracaoReal) {
-        const preferenciasDetectadas = dialogueManager.detectarPreferenciaImplicita(mensagem);
-        if (preferenciasDetectadas) {
-          conversationManager.atualizarPreferencias(currentConversationId, preferenciasDetectadas);
-          preferencias = { ...preferencias, ...preferenciasDetectadas };
-        }
-        conversationManager.setEstado(currentConversationId, 'ativo');
-      }
-
-      // OBTER CONTEXTO COMPLETO
+      // OBTER CONTEXTO COMPLETO (NOVO)
       const contextoCompleto = conversationManager.getContextoCompleto(currentConversationId);
 
       // --- Tratamento de escolha de material pendente ---
@@ -144,6 +83,7 @@ Como posso te ajudar hoje? Pode fazer qualquer pergunta ou me dizer sobre o que 
           conversationManager.registrarDocumentosApresentados(currentConversationId, documentosUsados);
           conversationManager.limparMateriaisPendentes(currentConversationId);
           
+          // ATUALIZAR CONTEXTO CONVERSACIONAL (NOVO)
           conversationManager.atualizarContextoConversacional(
             currentConversationId,
             mensagem,
@@ -160,7 +100,7 @@ Como posso te ajudar hoje? Pode fazer qualquer pergunta ou me dizer sobre o que 
             { 
               tipo: 'consulta', 
               escolha_processada: true,
-              intencaoDetectada: 'escolha_material'
+              intencaoDetectada: 'escolha_material' // ← Registrar intenção
             }
           );
           
@@ -178,7 +118,7 @@ Como posso te ajudar hoje? Pode fazer qualquer pergunta ou me dizer sobre o que 
       // Adicionar mensagem do usuário ao histórico
       conversationManager.adicionarMensagem(currentConversationId, 'user', mensagem);
 
-      // DETECTAR INTENÇÃO COM CONTEXTO COMPLETO
+      // DETECTAR INTENÇÃO COM CONTEXTO COMPLETO (NOVO)
       const deteccaoIntencao = intentDetector.detectar(mensagem, contextoCompleto);
 
       // Registrar intenção detectada na mensagem do usuário
@@ -202,6 +142,7 @@ Como posso te ajudar hoje? Pode fazer qualquer pergunta ou me dizer sobre o que 
           const documentosUsados = [...new Set(fragmentos.map(f => f.metadados.arquivo_url))];
           conversationManager.registrarDocumentosApresentados(currentConversationId, documentosUsados);
           
+          // ATUALIZAR CONTEXTO (NOVO)
           conversationManager.atualizarContextoConversacional(
             currentConversationId,
             mensagem,
@@ -231,10 +172,11 @@ Como posso te ajudar hoje? Pode fazer qualquer pergunta ou me dizer sobre o que 
         }
       }
 
-      // FOLLOW-UP E REEXPLICAÇÃO
+      // FOLLOW-UP E REEXPLICAÇÃO (NOVO)
       if (deteccaoIntencao.intencao === 'follow_up' || deteccaoIntencao.intencao === 'reexplicacao') {
         const contextoAtivo = contextoCompleto.contextoConversacional;
         if (contextoAtivo?.topicoAtual) {
+          // Buscar mais materiais ou reexplicar
           const queryBusca = `${contextoAtivo.topicoAtual} ${mensagem}`;
           const documentosApresentados = conversationManager.getDocumentosApresentados(currentConversationId);
           
@@ -256,6 +198,7 @@ Como posso te ajudar hoje? Pode fazer qualquer pergunta ou me dizer sobre o que 
             const documentosUsados = [...new Set(fragmentosFinais.map(f => f.metadados.arquivo_url))];
             conversationManager.registrarDocumentosApresentados(currentConversationId, documentosUsados);
             
+            // ATUALIZAR CONTEXTO (NOVO)
             conversationManager.atualizarContextoConversacional(
               currentConversationId,
               mensagem,
@@ -294,6 +237,7 @@ Como posso te ajudar hoje? Pode fazer qualquer pergunta ou me dizer sobre o que 
           const preferenciasAtualizadas = { ...preferencias, profundidade: nivel };
           conversationManager.atualizarPreferencias(currentConversationId, preferenciasAtualizadas);
 
+          // Buscar materiais adequados ao nível
           const queryBusca = `${contextoAtivo.topicoAtual} ${nivel === 'basico' ? 'introdução básico iniciante' : 'avançado técnico'}`;
           const documentosApresentados = conversationManager.getDocumentosApresentados(currentConversationId);
           
@@ -315,6 +259,7 @@ Como posso te ajudar hoje? Pode fazer qualquer pergunta ou me dizer sobre o que 
             const documentosUsados = [...new Set(fragmentosFinais.map(f => f.metadados.arquivo_url))];
             conversationManager.registrarDocumentosApresentados(currentConversationId, documentosUsados);
             
+            // ATUALIZAR CONTEXTO (NOVO)
             conversationManager.atualizarContextoConversacional(
               currentConversationId,
               mensagem,
@@ -353,6 +298,7 @@ Como posso te ajudar hoje? Pode fazer qualquer pergunta ou me dizer sobre o que 
           `${ai.personaEdu}\n\nResponda de forma amigável e natural. Mantenha o contexto da conversa anterior se relevante.`
         );
         
+        // ATUALIZAR CONTEXTO (NOVO)
         conversationManager.atualizarContextoConversacional(
           currentConversationId,
           mensagem,
@@ -397,6 +343,7 @@ Como posso te ajudar hoje? Pode fazer qualquer pergunta ou me dizer sobre o que 
         
         const resposta = await ai.apresentarTopicos(topicosComTiposAmigaveis, tiposMaterialAmigaveis, contextoCompleto.historico);
         
+        // ATUALIZAR CONTEXTO (NOVO)
         conversationManager.atualizarContextoConversacional(
           currentConversationId,
           mensagem,
@@ -439,6 +386,7 @@ Como posso te ajudar hoje? Pode fazer qualquer pergunta ou me dizer sobre o que 
           const tiposAmigaveis = mapearTiposParaAmigavel(topicoInfo.tipos_material);
           const resposta = await ai.gerarEngajamentoTopico(topicoInfo.topico, tiposAmigaveis, contextoCompleto.historico);
           
+          // ATUALIZAR CONTEXTO (NOVO)
           conversationManager.atualizarContextoConversacional(
             currentConversationId,
             mensagem,
@@ -557,6 +505,7 @@ Como posso te ajudar hoje? Pode fazer qualquer pergunta ou me dizer sobre o que 
         const documentosUsados = [...new Set(analiseRelevancia.fragmentosRelevantes.map(f => f.metadados.arquivo_url))];
         conversationManager.registrarDocumentosApresentados(currentConversationId, documentosUsados);
         
+        // ATUALIZAR CONTEXTO (NOVO)
         conversationManager.atualizarContextoConversacional(
           currentConversationId,
           mensagem,
@@ -589,6 +538,7 @@ Como posso te ajudar hoje? Pode fazer qualquer pergunta ou me dizer sobre o que 
       let queryBusca = mensagem;
       const contextoConv = contextoCompleto.contextoConversacional;
       
+      // Usar contexto do tópico atual se relevante
       if (contextoConv?.topicoAtual && deteccaoIntencao.metadados.usar_contexto_historico) {
         queryBusca = `${contextoConv.topicoAtual} ${mensagem}`;
       }
@@ -678,6 +628,7 @@ Como posso te ajudar hoje? Pode fazer qualquer pergunta ou me dizer sobre o que 
 
       const documentosAgrupados = contextAnalyzer.agruparPorDocumento(analiseRelevancia.fragmentosRelevantes);
       
+      // Oferecer escolha se múltiplos documentos relevantes
       if (documentosAgrupados.length > 1 && !contextoConv?.aguardandoResposta) {
         const opcoes = documentosAgrupados.map(doc => ({
           arquivo_url: doc.arquivo_url,
@@ -695,6 +646,7 @@ Como posso te ajudar hoje? Pode fazer qualquer pergunta ou me dizer sobre o que 
           query_usada: queryBusca 
         });
         
+        // ATUALIZAR CONTEXTO (NOVO)
         conversationManager.atualizarContextoConversacional(
           currentConversationId,
           mensagem,
@@ -730,6 +682,7 @@ Como posso te ajudar hoje? Pode fazer qualquer pergunta ou me dizer sobre o que 
         ));
       }
 
+      // Resposta direta com único documento
       const resposta = await ai.responderComContexto(
         mensagem,
         contextoCompleto.historico,
@@ -740,6 +693,7 @@ Como posso te ajudar hoje? Pode fazer qualquer pergunta ou me dizer sobre o que 
       const documentosUsados = [...new Set(analiseRelevancia.fragmentosRelevantes.map(f => f.metadados.arquivo_url))];
       conversationManager.registrarDocumentosApresentados(currentConversationId, documentosUsados);
       
+      // ATUALIZAR CONTEXTO (NOVO) - Registrar tópico atual
       const topicoDetectado = intentDetector.extrairTopicoDaMensagem(mensagem).join(' ') || 
                              contextoConv?.topicoAtual ||
                              intentDetector.extrairTopicoDeResposta(resposta);
@@ -781,10 +735,11 @@ Como posso te ajudar hoje? Pode fazer qualquer pergunta ou me dizer sobre o que 
     } catch (error) {
       console.error('Erro no chat:', error);
       
-      if (req.body.conversationId) {
+      // Registrar erro no contexto
+      if (currentConversationId) {
         conversationManager.atualizarContextoConversacional(
-          req.body.conversationId,
-          req.body.mensagem,
+          currentConversationId,
+          mensagem,
           'Desculpe, ocorreu um erro.',
           'erro',
           { tipo: 'erro' }
@@ -795,7 +750,7 @@ Como posso te ajudar hoje? Pode fazer qualquer pergunta ou me dizer sobre o que 
     }
   });
 
-  // Rotas de gerenciamento
+  // Rotas de gerenciamento (mantidas iguais)
   router.get('/conversas/:conversationId', async (req, res) => {
     try {
       const { conversationId } = req.params;

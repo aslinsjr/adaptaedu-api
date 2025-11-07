@@ -59,12 +59,6 @@ export class ConversationManager {
         conversa.estado = 'aguardando_escolha';
       } else if (metadata.tipo === 'engajamento_topico') {
         conversa.estado = 'aguardando_especificacao';
-      } else if (metadata.tipo === 'boas_vindas' && metadata.automatica) {
-        // Mensagem automática de boas-vindas
-        conversa.estado = 'aguardando_primeira_interacao';
-      } else if (conversa.estado === 'aguardando_primeira_interacao') {
-        // Manter estado se ainda aguardando primeira interação
-        conversa.estado = 'aguardando_primeira_interacao';
       } else {
         conversa.estado = 'ativo';
       }
@@ -76,38 +70,7 @@ export class ConversationManager {
     return conversationId;
   }
 
-  // Novo método para verificar primeira interação real do usuário
-  isPrimeiraInteracaoReal(conversationId) {
-    const conversa = this.conversations.get(conversationId);
-    if (!conversa) return true;
-    
-    // Contar apenas mensagens do usuário (ignorar mensagens automáticas do assistant)
-    const mensagensUsuario = conversa.mensagens.filter(m => m.role === 'user');
-    return mensagensUsuario.length === 0;
-  }
-
-  // Método para obter última mensagem real do usuário
-  getUltimaMensagemUsuario(conversationId) {
-    const conversa = this.conversations.get(conversationId);
-    if (!conversa) return null;
-    
-    const mensagensUsuario = conversa.mensagens.filter(m => m.role === 'user');
-    return mensagensUsuario[mensagensUsuario.length - 1] || null;
-  }
-
-  // Método para verificar se tem mensagem inicial automática
-  temMensagemInicial(conversationId) {
-    const conversa = this.conversations.get(conversationId);
-    if (!conversa) return false;
-    
-    // Verificar se primeira mensagem é do assistant e automática
-    const primeiraMensagem = conversa.mensagens[0];
-    return primeiraMensagem && 
-           primeiraMensagem.role === 'assistant' && 
-           primeiraMensagem.metadata?.automatica === true;
-  }
-
-  // Obter contexto completo para detecção de intenções
+  // NOVO: Obter contexto completo para detecção de intenções
   getContextoCompleto(conversationId) {
     const conversa = this.conversations.get(conversationId);
     const contexto = this.contextos.get(conversationId);
@@ -136,26 +99,18 @@ export class ConversationManager {
     const conversa = this.conversations.get(conversationId);
     if (!conversa) return [];
     
-    // Filtrar mensagens automáticas se necessário
-    const mensagensFiltradas = conversa.mensagens.filter(m => {
-      // Incluir todas exceto mensagens automáticas de boas-vindas no histórico
-      if (m.role === 'assistant' && m.metadata?.automatica === true && m.metadata?.tipo === 'boas_vindas') {
-        return false;
-      }
-      return true;
-    });
-    
-    return mensagensFiltradas.slice(-limite).map(m => ({
+    return conversa.mensagens.slice(-limite).map(m => ({
       role: m.role,
       content: m.content,
       timestamp: m.timestamp,
       metadata: m.metadata || {},
       fontes: m.fontes || [],
+      // Incluir intenção detectada se disponível
       intencaoDetectada: m.metadata?.intencaoDetectada
     }));
   }
 
-  // Atualizar contexto conversacional após interação
+  // NOVO: Atualizar contexto conversacional após interação
   atualizarContextoConversacional(conversationId, mensagemUsuario, respostaAssistant, intencao, metadata = {}) {
     let contexto = this.contextos.get(conversationId);
     if (!contexto) {
@@ -170,9 +125,7 @@ export class ConversationManager {
     if (conversa) {
       if (contexto.aguardandoResposta) {
         conversa.estado = `aguardando_${contexto.aguardandoResposta}`;
-      } else if (conversa.estado === 'aguardando_primeira_interacao' && mensagemUsuario) {
-        conversa.estado = 'ativo';
-      } else if (conversa.estado !== 'aguardando_primeira_interacao') {
+      } else {
         conversa.estado = 'ativo';
       }
       conversa.atualizado_em = new Date();
@@ -200,9 +153,7 @@ export class ConversationManager {
     const conversa = this.conversations.get(conversationId);
     if (conversa) {
       conversa.onboardingCompleto = true;
-      if (conversa.estado === 'aguardando_primeira_interacao') {
-        conversa.estado = 'ativo';
-      }
+      conversa.estado = 'ativo';
     }
   }
 
@@ -220,7 +171,6 @@ export class ConversationManager {
     const conversa = this.conversations.get(conversationId);
     if (conversa) {
       conversa.estado = novoEstado;
-      conversa.atualizado_em = new Date();
     }
   }
 
@@ -343,9 +293,7 @@ export class ConversationManager {
     if (!conversa) return;
 
     conversa.materiais_pendentes = null;
-    if (conversa.estado === 'aguardando_escolha') {
-      conversa.estado = 'ativo';
-    }
+    conversa.estado = 'ativo';
     conversa.atualizado_em = new Date();
 
     // Limpar contexto de espera
@@ -366,7 +314,7 @@ export class ConversationManager {
     return conversa?.tags_apresentacao || [];
   }
 
-  // Método para debug - visualizar contexto
+  // NOVO: Método para debug - visualizar contexto
   debugContexto(conversationId) {
     const conversa = this.conversations.get(conversationId);
     const contexto = this.contextos.get(conversationId);
@@ -376,8 +324,6 @@ export class ConversationManager {
         id: conversa.id,
         estado: conversa.estado,
         totalMensagens: conversa.mensagens.length,
-        mensagensUsuario: conversa.mensagens.filter(m => m.role === 'user').length,
-        temMensagemInicial: this.temMensagemInicial(conversationId),
         documentosApresentados: conversa.documentos_apresentados.length,
         temMateriaisPendentes: !!conversa.materiais_pendentes,
         atualizado_em: conversa.atualizado_em
@@ -386,7 +332,7 @@ export class ConversationManager {
     };
   }
 
-  // Reiniciar contexto (útil para mudanças bruscas de tópico)
+  // NOVO: Reiniciar contexto (útil para mudanças bruscas de tópico)
   reiniciarContexto(conversationId) {
     const contexto = this.contextos.get(conversationId);
     if (contexto) {
@@ -395,24 +341,18 @@ export class ConversationManager {
     
     const conversa = this.conversations.get(conversationId);
     if (conversa) {
-      if (conversa.estado !== 'aguardando_primeira_interacao') {
-        conversa.estado = 'ativo';
-      }
+      conversa.estado = 'ativo';
       conversa.atualizado_em = new Date();
     }
   }
 
-  // Estatísticas da conversa
+  // NOVO: Estatísticas da conversa
   getEstatisticasConversa(conversationId) {
     const conversa = this.conversations.get(conversationId);
     if (!conversa) return null;
 
     const mensagensUser = conversa.mensagens.filter(m => m.role === 'user').length;
     const mensagensAssistant = conversa.mensagens.filter(m => m.role === 'assistant').length;
-    const mensagensAutomaticas = conversa.mensagens.filter(m => 
-      m.role === 'assistant' && m.metadata?.automatica === true
-    ).length;
-    
     const tiposResposta = {};
     
     conversa.mensagens.forEach(m => {
@@ -425,14 +365,10 @@ export class ConversationManager {
       totalMensagens: conversa.mensagens.length,
       mensagensUser,
       mensagensAssistant,
-      mensagensAutomaticas,
       documentosUtilizados: conversa.documentos_apresentados.length,
       tiposResposta,
       duracao: new Date() - conversa.criado_em,
-      idade: new Date() - conversa.atualizado_em,
-      estado: conversa.estado,
-      temMensagemInicial: this.temMensagemInicial(conversationId),
-      primeiraInteracaoReal: this.isPrimeiraInteracaoReal(conversationId)
+      idade: new Date() - conversa.atualizado_em
     };
   }
 }
