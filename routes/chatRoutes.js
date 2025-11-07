@@ -168,7 +168,6 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
         return await processarIntencaoInteresseTopico(
           mensagem, 
           deteccaoIntencao.metadados, 
-          conversationId,
           contextoCompleto,
           resultadoBusca
         );
@@ -176,7 +175,6 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
       case 'confirmacao':
         return await processarIntencaoConfirmacao(
           mensagem,
-          conversationId,
           contextoCompleto,
           resultadoBusca
         );
@@ -257,7 +255,7 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
     };
   }
 
-  async function processarIntencaoInteresseTopico(mensagem, metadados, conversationId, contextoCompleto, resultadoBusca) {
+  async function processarIntencaoInteresseTopico(mensagem, metadados, contextoCompleto, resultadoBusca) {
     const termoBuscado = metadados.termoBuscado;
     const topicoCorrespondente = metadados.topicoCorrespondente;
 
@@ -405,7 +403,7 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
     };
   }
 
-  async function processarIntencaoConfirmacao(mensagem, conversationId, contextoCompleto, resultadoBusca) {
+  async function processarIntencaoConfirmacao(mensagem, contextoCompleto, resultadoBusca) {
     const preferencias = conversationManager.getPreferencias(conversationId);
     const resposta = await ai.responderComReferenciasEspecificas(
       "Continue com mais informações sobre o tópico atual",
