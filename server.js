@@ -44,6 +44,7 @@ console.log('✓ Conectado ao MongoDB');
 const vectorSearch = new VectorSearchService(mongo, ai);
 const textReconstructor = new TextReconstructor(mongo);
 
+// Passar todas as dependências necessárias
 app.use('/api', createChatRoutes(vectorSearch, ai, conversationManager, mongo));
 app.use('/api', createDocumentRoutes(mongo, textReconstructor, vectorSearch));
 app.use('/api', createSearchRoutes(vectorSearch));
@@ -56,6 +57,7 @@ app.get('/health', (req, res) => {
   });
 });
 
+// Limpar conversas antigas a cada 24 horas
 setInterval(() => {
   conversationManager.limparConversasAntigas(24);
 }, 60 * 60 * 1000);
@@ -64,6 +66,7 @@ const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
   console.log(`✓ Chat RAG API rodando na porta ${PORT}`);
   console.log(`✓ Health check: http://localhost:${PORT}/health`);
+  console.log(`✓ Modo: Backend inicia com saudação do Edu e analisa primeira resposta do usuário`);
 });
 
 process.on('SIGINT', async () => {
