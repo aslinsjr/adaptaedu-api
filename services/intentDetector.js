@@ -5,7 +5,6 @@ export class IntentDetector {
       CASUAL: 'casual',
       DESCOBERTA: 'descoberta',
       CONSULTA: 'consulta',
-      PREFERENCIA: 'preferencia',
       INTERESSE_TOPICO: 'interesse_topico',
       CONTINUACAO: 'continuacao',
       CONFIRMACAO: 'confirmacao',
@@ -13,7 +12,8 @@ export class IntentDetector {
       FOLLOW_UP: 'follow_up',
       REEXPLICACAO: 'reexplicacao',
       ESCOLHA_MATERIAL: 'escolha_material',
-      DETALHAMENTO: 'detalhamento'
+      DETALHAMENTO: 'detalhamento',
+      SUGESTAO_TOPICOS: 'sugestao_topicos'
     };
 
     this.padroesCasuais = [
@@ -48,6 +48,13 @@ export class IntentDetector {
       /\b(ensinar|aprender|estudar)\b.*\b(o que|quais|que)\b/i
     ];
 
+    this.padroesInteresseTopico = [
+      /\b(quero|gostaria|preciso).*(saber|aprender|entender|estudar).*(sobre|acerca|a respeito)\b/i,
+      /\b(ensina|explica|fala).*(sobre|acerca|a respeito)\b/i,
+      /\b(sobre|acerca|a respeito)\s+(de|do|da)\s+([^,.!?]+)/i,
+      /\b(me\s+)?(ensine|explique|mostre)\s+([^,.!?]+)/i
+    ];
+
     this.padroesContinuacao = [
       /^(vamos|continue|prossiga|pode continuar|segue|anda)/i,
       /^(e (aí|ai|agora|então|depois|como fica))(\s|$)/i,
@@ -78,17 +85,10 @@ export class IntentDetector {
       'onde', 'quem', 'porquê', 'explique', 'explica', 'ensine', 'ensina',
       'mostre', 'mostra', 'defina', 'define', 'diferença', 'funciona'
     ];
-
-    this.topicosConhecidos = {
-      'html': ['html', 'html5', 'páginas web', 'pagina html', 'construir página', 'criar site', 'hypertext'],
-      'css': ['css', 'estilo', 'estilizar', 'folha de estilo', 'cascading', 'design'],
-      'javascript': ['javascript', 'js', 'script', 'interatividade', 'programação web', 'ecmascript'],
-      'programação': ['programação', 'programar', 'codar', 'código', 'desenvolvimento', 'coding']
-    };
   }
 
   detectar(mensagem, contextoCompleto = {}) {
-    const { historico = [], contextoConversacional } = contextoCompleto;
+    const { historico = [], contextoConversacional, topicosDisponiveis = [] } = contextoCompleto;
     const lower = mensagem.toLowerCase().trim();
 
     // 1. VERIFICAR CONTINUAÇÃO DE FLUXO EXISTENTE
@@ -99,13 +99,7 @@ export class IntentDetector {
       }
     }
 
-    // 2. ANÁLISE CONVERSACIONAL CONTEXTUAL
-    const analiseConversacional = this.analisarContextoConversacional(mensagem, historico, contextoConversacional);
-    if (analiseConversacional.confianca > 0.8) {
-      return analiseConversacional;
-    }
-
-    // 3. DETECÇÃO POR PADRÕES TRADICIONAIS (com melhorias)
+    // 2. DETECÇÃO POR PADRÕES TRADICIONAIS
     
     // CONFIRMAÇÃO
     for (const padrao of this.padroesConfirmacao) {
@@ -140,6 +134,31 @@ export class IntentDetector {
       }
     }
 
+    // DESCOBERTA
+    for (const padrao of this.padroesDescoberta) {
+      if (padrao.test(lower)) {
+        return { 
+          intencao: this.intencoes.DESCOBERTA, 
+          confianca: 0.94, 
+          metadados: { razao: 'pedido_descoberta' } 
+        };
+      }
+    }
+
+    // INTERESSE EM TÓPICO ESPECÍFICO
+    const topicoDetectado = this.detectarInteresseTopico(lower, topicosDisponiveis);
+    if (topicoDetectado) {
+      return {
+        intencao: this.intencoes.INTERESSE_TOPICO,
+        confianca: 0.89,
+        metadados: { 
+          razao: 'topico_detectado', 
+          termoBuscado: topicoDetectado.termo,
+          topicoCorrespondente: topicoDetectado.topico
+        }
+      };
+    }
+
     // FOLLOW-UP/REEXPLICAÇÃO
     for (const padrao of this.padroesFollowUp) {
       if (padrao.test(lower)) {
@@ -172,30 +191,6 @@ export class IntentDetector {
       }
     }
 
-    // DESCOBERTA
-    for (const padrao of this.padroesDescoberta) {
-      if (padrao.test(lower)) {
-        return { 
-          intencao: this.intencoes.DESCOBERTA, 
-          confianca: 0.94, 
-          metadados: { razao: 'pedido_descoberta' } 
-        };
-      }
-    }
-
-    // INTERESSE EM TÓPICO ESPECÍFICO
-    const topicoDetectado = this.detectarTopicoConhecido(lower);
-    if (topicoDetectado) {
-      return {
-        intencao: this.intencoes.INTERESSE_TOPICO,
-        confianca: 0.89,
-        metadados: { 
-          razao: 'topico_conhecido_detectado', 
-          termoBuscado: topicoDetectado
-        }
-      };
-    }
-
     // CONSULTA PADRÃO (com contexto melhorado)
     const palavras = mensagem.split(/\s+/);
     const temPalavrasPergunta = this.palavrasPergunta.some(p => lower.includes(p));
@@ -218,6 +213,46 @@ export class IntentDetector {
     };
   }
 
+  detectarInteresseTopico(mensagem, topicosDisponiveis) {
+    if (!topicosDisponiveis || topicosDisponiveis.length === 0) return null;
+
+    const lower = mensagem.toLowerCase();
+    
+    // Verificar padrões de interesse em tópico
+    for (const padrao of this.padroesInteresseTopico) {
+      const match = mensagem.match(padrao);
+      if (match) {
+        const termo = match[3] || match[2] || match[1];
+        if (termo && termo.length > 2) {
+          // Encontrar tópico correspondente
+          const topicoCorrespondente = topicosDisponiveis.find(t => 
+            t.toLowerCase().includes(termo.toLowerCase()) || 
+            termo.toLowerCase().includes(t.toLowerCase())
+          );
+          
+          if (topicoCorrespondente) {
+            return {
+              termo: termo.trim(),
+              topico: topicoCorrespondente
+            };
+          }
+        }
+      }
+    }
+
+    // Busca direta por tópicos na mensagem
+    for (const topico of topicosDisponiveis) {
+      if (lower.includes(topico.toLowerCase())) {
+        return {
+          termo: topico,
+          topico: topico
+        };
+      }
+    }
+
+    return null;
+  }
+
   detectarContinuacaoFluxo(mensagem, contexto) {
     const lower = mensagem.toLowerCase();
     
@@ -235,18 +270,6 @@ export class IntentDetector {
           }
         };
       }
-      
-      // Fallback: se não é número mas parece escolha
-      if (this.pareceEscolhaQualitativa(lower)) {
-        return {
-          intencao: this.intencoes.ESCOLHA_MATERIAL,
-          confianca: 0.82,
-          metadados: { 
-            escolha_qualitativa: true,
-            fluxo: 'continuacao_escolha_material'
-          }
-        };
-      }
     }
     
     // Follow-up natural após explicação
@@ -261,51 +284,7 @@ export class IntentDetector {
       };
     }
     
-    // Aguardando especificação de tópico
-    if (contexto.aguardandoResposta === 'detalhes_topico' && 
-        this.isEspecificacaoTopico(lower)) {
-      return {
-        intencao: this.intencoes.CONSULTA,
-        confianca: 0.88,
-        metadados: { 
-          fluxo: 'especificacao_topico',
-          topico_contexto: contexto.topicoAtual
-        }
-      };
-    }
-    
     return null;
-  }
-
-  analisarContextoConversacional(mensagem, historico, contextoConversacional) {
-    if (historico.length === 0) return { confianca: 0 };
-    
-    const ultimaResposta = historico[historico.length - 1];
-    const ultimoConteudo = ultimaResposta.content.toLowerCase();
-    const lower = mensagem.toLowerCase();
-    
-    // Detectar follow-up baseado no conteúdo anterior
-    if (this.isFollowUpContextual(lower, ultimoConteudo)) {
-      return {
-        intencao: this.intencoes.FOLLOW_UP,
-        confianca: 0.91,
-        metadados: { 
-          tipo: 'detalhamento_contextual',
-          relacionado_a: contextoConversacional?.topicoAtual
-        }
-      };
-    }
-    
-    // Detectar confusão após explicação complexa
-    if (this.isSinalConfusao(lower, ultimoConteudo)) {
-      return {
-        intencao: this.intencoes.REEXPLICACAO,
-        confianca: 0.87,
-        metadados: { razao: 'sinal_confusao_detectado' }
-      };
-    }
-    
-    return { confianca: 0 };
   }
 
   extrairEscolhaNumerica(mensagem) {
@@ -324,15 +303,6 @@ export class IntentDetector {
     return null;
   }
 
-  pareceEscolhaQualitativa(mensagem) {
-    const padroes = [
-      /\b(esse|aquele|o|a)\s+(mesmo|primeiro|segundo|texto|v[ií]deo|imagem)\b/i,
-      /\b(quero|prefiro|gosto).*(texto|v[ií]deo|imagem|pdf|documento)\b/i,
-      /\b(o|a)\s+(de|do|da)\s+(texto|v[ií]deo|imagem)/i
-    ];
-    return padroes.some(padrao => padrao.test(mensagem));
-  }
-
   isFollowUpNatural(mensagem) {
     const padroes = [
       /\b(e|mas|só que|só).*(como|porque|por que|funciona|serve)\b/i,
@@ -343,98 +313,17 @@ export class IntentDetector {
     return padroes.some(padrao => padrao.test(mensagem));
   }
 
-  isEspecificacaoTopico(mensagem) {
-    return mensagem.length > 5 && 
-           !this.padroesCasuais.some(p => p.test(mensagem)) &&
-           !this.padroesConfirmacao.some(p => p.test(mensagem));
-  }
-
-  isFollowUpContextual(mensagemAtual, ultimaResposta) {
-    const palavrasResposta = ultimaResposta.split(/\s+/);
-    const palavrasComuns = palavrasResposta.filter(palavra => 
-      palavra.length > 4 && mensagemAtual.includes(palavra)
-    );
-    
-    const temTermosFollowUp = this.padroesFollowUp.some(p => p.test(mensagemAtual));
-    
-    return palavrasComuns.length >= 1 && temTermosFollowUp;
-  }
-
-  isSinalConfusao(mensagemAtual, ultimaResposta) {
-    const sinais = [
-      'não entendi', 'não compreendi', 'como assim', 'o que é', 
-      'pode repetir', 'explique melhor', 'mais simples'
-    ];
-    
-    const respostaComplexa = ultimaResposta.split(/\s+/).length > 30;
-    
-    return sinais.some(sinal => mensagemAtual.includes(sinal)) && respostaComplexa;
-  }
-
-  detectarTopicoConhecido(mensagem) {
-    for (const [topico, palavrasChave] of Object.entries(this.topicosConhecidos)) {
-      for (const palavra of palavrasChave) {
-        if (mensagem.includes(palavra)) {
-          return topico;
-        }
-      }
-    }
-    return null;
-  }
-
-  verificarContextoAtivo(historico) {
-    if (!historico || historico.length === 0) return { temContexto: false };
-    
-    const mensagensRecentes = historico.slice(-3);
-    const ultimaResposta = mensagensRecentes.find(m => m.role === 'assistant');
-    if (!ultimaResposta) return { temContexto: false };
-
-    const tipoResposta = ultimaResposta.metadata?.tipo;
-    const topico = ultimaResposta.metadata?.topico;
-    const fragmentos = ultimaResposta.fragmentos;
-
-    const temContexto = ['consulta', 'engajamento_topico', 'descoberta', 'lista_materiais'].includes(tipoResposta);
-    
-    if (temContexto && fragmentos?.length > 0) {
-      const topicoExtraido = topico || this.extrairTopicoDeResposta(ultimaResposta.content);
-      return { 
-        temContexto: true, 
-        topico: topicoExtraido, 
-        tipoResposta,
-        fragmentosPendentes: fragmentos
-      };
-    }
-    
-    return { temContexto: false };
-  }
-
-  extrairTopicoDeResposta(resposta) {
-    if (!resposta) return null;
-    const padroes = [
-      /materiais? sobre ([^,.!?]+)/i,
-      /sobre ([^,.!?]+)/i,
-      /tópico[:\s]+([^,.!?]+)/i,
-      /aprender ([^,.!?]+)/i,
-      /assunto[:\s]+([^,.!?]+)/i
-    ];
-    
-    for (const padrao of padroes) {
-      const match = resposta.match(padrao);
-      if (match) return match[1].trim().split(/\s+/).slice(0, 3).join(' ');
-    }
-    
-    return null;
-  }
-
   extrairTopicoDaMensagem(mensagem) {
     const lower = mensagem.toLowerCase();
-    const palavras = lower.split(/\s+/).filter(p => p.length > 3);
     const stopWords = new Set([
       'como', 'que', 'para', 'sobre', 'qual', 'quais', 'quando',
       'onde', 'porque', 'quem', 'quanto', 'pela', 'pelo', 'esta',
       'esse', 'essa', 'isso', 'aqui', 'ali', 'mais', 'menos',
       'você', 'voce', 'pode', 'sabe', 'ensina', 'conhece'
     ]);
-    return palavras.filter(p => !stopWords.has(p)).slice(0, 3);
+    
+    return lower.split(/\s+/)
+      .filter(p => p.length > 3 && !stopWords.has(p))
+      .slice(0, 3);
   }
 }

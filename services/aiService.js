@@ -22,7 +22,9 @@ ESTILO DE RESPOSTA:
 - Direto e informativo
 - Sempre referencie a fonte no formato: "[Nome do Arquivo, Página X]"
 - Agrupe informações por fonte quando possível
-- Seja natural mas preciso`;
+- Seja natural mas preciso
+- Use linguagem acessível e educacional`;
+
   }
 
   async createEmbedding(text) {
@@ -37,7 +39,7 @@ ESTILO DE RESPOSTA:
 
   // GERAR BOAS-VINDAS COM TÓPICOS DISPONÍVEIS
   async gerarBoasVindasComTopicos(topicos, estatisticas) {
-    const topicosTexto = topicos.slice(0, 5).join(', ');
+    const topicosTexto = topicos.slice(0, 5).map(t => t.nome).join(', ');
     const totalTopicos = estatisticas.total_topicos || topicos.length;
     const totalDocumentos = estatisticas.total_documentos || 0;
 
@@ -50,10 +52,11 @@ TOTAL DE TÓPICOS: ${totalTopicos}
 TOTAL DE DOCUMENTOS: ${totalDocumentos}
 
 Gere uma mensagem de boas-vindas que:
-1. Se apresente como Edu
+1. Se apresente como Edu de forma amigável
 2. Mencione os principais tópicos disponíveis
-3. Convide o usuário a perguntar sobre esses tópicos
-4. Seja acolhedor e informativo
+3. Explique que pode ajudar com explicações baseadas nesses materiais
+4. Convide o usuário a perguntar sobre esses tópicos
+5. Seja acolhedor e informativo
 
 Não use markdown, seja natural.`;
 
@@ -73,12 +76,16 @@ Não use markdown, seja natural.`;
 
 Tenho materiais sobre ${topicosTexto} e mais ${totalTopicos - 5} outros tópicos.
 
-Com base no que tenho disponível, posso te ajudar com explicações, exemplos e tirar dúvidas. O que gostaria de aprender hoje?`;
+Com base no que tenho disponível, posso te ajudar com explicações, exemplos e tirar dúvidas sobre esses assuntos. O que gostaria de aprender hoje?`;
     }
   }
 
   // RESPOSTA COM REFERÊNCIAS ESPECÍFICAS AOS MATERIAIS
   async responderComReferenciasEspecificas(mensagem, historico = [], fragmentos = [], preferencias = null) {
+    if (!fragmentos || fragmentos.length === 0) {
+      return "Desculpe, não encontrei materiais específicos sobre esse assunto na base de conhecimento disponível.";
+    }
+
     // Agrupar fragmentos por arquivo para organização
     const fragmentosPorArquivo = this.agruparFragmentosPorArquivo(fragmentos);
     
@@ -96,6 +103,9 @@ REGRAS ESTRITAS:
 4. Agrupe informações por fonte quando possível
 5. Seja direto e evite repetições
 6. Se os materiais não cobrirem completamente a pergunta, seja honesto sobre as limitações
+7. Adapte a profundidade da explicação conforme necessário
+
+${preferencias?.profundidade === 'basico' ? 'Use linguagem simples e conceitos básicos.' : 'Pode incluir detalhes técnicos quando relevante.'}
 
 FORMATO PREFERIDO:
 - Responda diretamente à pergunta
@@ -115,7 +125,7 @@ FORMATO PREFERIDO:
           { role: 'user', parts: [{ text: systemPrompt }] }
         ],
         generationConfig: { 
-          temperature: 0.7, 
+          temperature: preferencias?.profundidade === 'basico' ? 0.5 : 0.7,
           maxOutputTokens: 2048 
         }
       });
@@ -162,7 +172,7 @@ FORMATO PREFERIDO:
       
       return `
 ARQUIVO: ${arquivo.arquivo}${infoPaginas}
-CONTEÚDO:
+CONTEÚDO RELEVANTE:
 ${arquivo.fragmentos.map(f => {
   const infoPagina = f.pagina ? ` [pág. ${f.pagina}]` : '';
   return `• ${f.conteudo}${infoPagina}`;
@@ -214,6 +224,53 @@ ${arquivo.fragmentos.map(f => {
     return resposta;
   }
 
+  // APRESENTAR TÓPICOS PARA DESCOBERTA
+  async apresentarTopicosDescoberta(topicos, estatisticas, historico = []) {
+    const topicosTexto = topicos.map(t => t.nome).join(', ');
+    const totalTopicos = estatisticas.total_topicos || topicos.length;
+    const formatos = estatisticas.tipos_material?.map(t => t.tipo).join(', ') || 'texto, vídeo, imagem';
+
+    const prompt = `${this.personaEdu}
+
+Você está apresentando os tópicos disponíveis para o usuário explorar.
+
+TÓPICOS PRINCIPAIS: ${topicosTexto}
+TOTAL DE TÓPICOS: ${totalTopicos}
+FORMATOS DISPONÍVEIS: ${formatos}
+
+Apresente esses tópicos de forma convidativa:
+1. Mostre entusiasmo pelos materiais disponíveis
+2. Liste os tópicos principais de forma natural (não use bullets)
+3. Mencione a variedade de formatos
+4. Convide o usuário a escolher um tópico
+5. Seja acolhedor e encorajador
+
+Exemplo de estrutura:
+"Tenho materiais excelentes sobre [tópicos]. São [número] tópicos no total, com conteúdo em [formatos]. Qual desses assuntos te interessa para começarmos?"`;
+
+    try {
+      const conversationHistory = historico.map(msg => ({
+        role: msg.role === 'user' ? 'user' : 'model',
+        parts: [{ text: msg.content }]
+      }));
+
+      const result = await this.chatModel.generateContent({
+        contents: [
+          ...conversationHistory,
+          { role: 'user', parts: [{ text: prompt }] }
+        ],
+        generationConfig: { 
+          temperature: 0.8, 
+          maxOutputTokens: 350 
+        }
+      });
+      
+      return result.response.text();
+    } catch (error) {
+      return `Tenho materiais sobre: ${topicosTexto}. \n\nNo total são ${totalTopicos} tópicos disponíveis em formatos como ${formatos}. Qual te interessa para começarmos?`;
+    }
+  }
+
   // SUGERIR TÓPICOS DISPONÍVEIS
   async sugerirTopicosDisponiveis(topicos, mensagem, historico = []) {
     const topicosTexto = topicos.slice(0, 8).join(', ');
@@ -223,9 +280,13 @@ ${arquivo.fragmentos.map(f => {
 O usuário perguntou sobre: "${mensagem}"
 No momento, meus materiais cobrem principalmente estes tópicos: ${topicosTexto}
 
-Sugira de forma natural que podemos ajudar com esses tópicos e pergunte qual interessa mais.
+Sugira esses tópicos de forma natural:
+- Reconheça o interesse do usuário
+- Apresente os tópicos disponíveis
+- Convide para explorar um deles
+- Seja acolhedor e útil
 
-Seja acolhedor e incentive a exploração dos tópicos disponíveis.`;
+Não liste como bullets, use texto corrido.`;
 
     try {
       const conversationHistory = historico.map(msg => ({
@@ -247,6 +308,36 @@ Seja acolhedor e incentive a exploração dos tópicos disponíveis.`;
       return result.response.text();
     } catch (error) {
       return `Sobre "${mensagem}", posso te ajudar com: ${topicosTexto}. \n\nQual desses tópicos te interessa mais?`;
+    }
+  }
+
+  // SUGERIR TÓPICOS RELACIONADOS
+  async sugerirTopicosRelacionados(topicos, termoOriginal, historico = []) {
+    const topicosTexto = topicos.join(', ');
+
+    const prompt = `${this.personaEdu}
+
+O usuário perguntou sobre "${termoOriginal}" 
+Encontrei tópicos relacionados: ${topicosTexto}
+
+Sugira esses tópicos relacionados de forma natural:
+- Reconheça que não encontrou exatamente o que procurava
+- Apresente os tópicos relacionados
+- Pergunte se algum atende à necessidade
+- Seja honesto e útil`;
+
+    try {
+      const result = await this.chatModel.generateContent({
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: { 
+          temperature: 0.7, 
+          maxOutputTokens: 250 
+        }
+      });
+      
+      return result.response.text();
+    } catch (error) {
+      return `Sobre "${termoOriginal}", tenho materiais relacionados a: ${topicosTexto}. \n\nAlgum desses tópicos te interessa?`;
     }
   }
 
@@ -278,31 +369,127 @@ Seja útil e direto.`;
     }
   }
 
-  // MÉTODO DE FALLBACK PARA GROK (mantido para compatibilidade)
+  // APRESENTAR MATERIAIS PARA ESCOLHA
+  async apresentarMateriaisContextual(materiais, contextoHistorico) {
+    const listaMateriais = materiais.map((m, i) => ({
+      numero: i + 1,
+      nome: m.arquivo_nome,
+      tipo: this.mapearTipoAmigavel(m.tipo),
+      fragmentos: m.fragmentos.length
+    }));
+
+    const prompt = `${this.personaEdu}
+
+Encontrei múltiplos materiais relevantes. Apresente as opções:
+
+MATERIAIS ENCONTRADOS:
+${listaMateriais.map(m => `${m.numero}. ${m.nome} (${m.tipo}) - ${m.fragmentos} fragmentos`).join('\n')}
+
+INSTRUÇÕES:
+- Apresente as opções de forma clara
+- Diga que o usuário pode escolher qual material prefere
+- Seja conciso e útil
+- Use números para as opções
+- Finalize perguntando a preferência
+
+Exemplo:
+"Encontrei alguns materiais que podem te ajudar. Temos [opção 1], [opção 2] ou [opção 3]. Qual você prefere que eu use para te explicar?"`;
+
+    try {
+      const result = await this.chatModel.generateContent({
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: { 
+          temperature: 0.7, 
+          maxOutputTokens: 350 
+        }
+      });
+      
+      return result.response.text();
+    } catch (error) {
+      return `Encontrei ${materiais.length} materiais relevantes:\n\n${
+        materiais.map((m, i) => `${i + 1}. ${m.arquivo_nome} (${this.mapearTipoAmigavel(m.tipo)})`).join('\n')
+      }\n\nQual você prefere que eu use para te explicar?`;
+    }
+  }
+
+  // CONVERSAR LIVREMENTE
+  async conversarLivremente(mensagem, historico = []) {
+    const systemPrompt = `${this.personaEdu}
+
+Responda de forma natural e amigável à mensagem casual do usuário.
+
+Se for uma saudação, responda adequadamente.
+Se for um agradecimento, seja educado.
+Mantenha o tom conversacional.`;
+
+    try {
+      const conversationHistory = historico.map(msg => ({
+        role: msg.role === 'user' ? 'user' : 'model',
+        parts: [{ text: msg.content }]
+      }));
+
+      const result = await this.chatModel.generateContent({
+        contents: [
+          ...conversationHistory,
+          { role: 'user', parts: [{ text: `${systemPrompt}\n\nUSUÁRIO: ${mensagem}` }] }
+        ],
+        generationConfig: { 
+          temperature: 0.8, 
+          maxOutputTokens: 2048 
+        }
+      });
+
+      return result.response.text();
+    } catch (error) {
+      return 'Desculpe, estou com dificuldades técnicas no momento. Podemos continuar nossa conversa?';
+    }
+  }
+
+  // MAPEAR TIPO PARA NOME AMIGÁVEL
+  mapearTipoAmigavel(tipo) {
+    if (!tipo) return 'material';
+    
+    const tipoLower = tipo.toLowerCase();
+    const mapeamento = {
+      'pdf': 'texto', 'docx': 'texto', 'doc': 'texto', 'txt': 'texto',
+      'video': 'vídeo', 'mp4': 'vídeo', 'avi': 'vídeo', 'mkv': 'vídeo',
+      'imagem': 'imagem', 'image': 'imagem', 'png': 'imagem', 'jpg': 'imagem', 'jpeg': 'imagem', 'gif': 'imagem',
+      'audio': 'áudio', 'mp3': 'áudio', 'wav': 'áudio'
+    };
+    
+    return mapeamento[tipoLower] || tipoLower;
+  }
+
+  // MÉTODO DE FALLBACK PARA GROK
   async _callGrokAPI(messages, temperature = 0.8, maxTokens = 2048) {
     if (!this.grokApiKey) {
       throw new Error('Grok API key não configurada');
     }
 
-    const response = await fetch('https://api.x.ai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.grokApiKey}`
-      },
-      body: JSON.stringify({
-        model: 'grok-4-fast-reasoning',
-        messages: messages,
-        temperature: temperature,
-        max_tokens: maxTokens
-      })
-    });
+    try {
+      const response = await fetch('https://api.x.ai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.grokApiKey}`
+        },
+        body: JSON.stringify({
+          model: 'grok-4-fast-reasoning',
+          messages: messages,
+          temperature: temperature,
+          max_tokens: maxTokens
+        })
+      });
 
-    if (!response.ok) {
-      throw new Error(`Grok API error: ${response.status}`);
+      if (!response.ok) {
+        throw new Error(`Grok API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data.choices[0].message.content;
+    } catch (error) {
+      console.error('Erro na API Grok:', error);
+      throw error;
     }
-
-    const data = await response.json();
-    return data.choices[0].message.content;
   }
 }
