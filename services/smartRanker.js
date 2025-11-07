@@ -2,30 +2,38 @@
 export class SmartRanker {
   constructor() {
     this.pesos = {
-      scoreVetorial: 0.40,
-      completude: 0.25,
+      scoreVetorial: 0.35,
+      completude: 0.20,
       posicaoDocumento: 0.15,
-      matchMetadados: 0.20
+      matchMetadados: 0.15,
+      relevanciaTopico: 0.15
     };
   }
 
-  rankearPorQualidade(fragmentos, query) {
+  // MÉTODO PRINCIPAL MELHORADO - Considera relevância do tópico
+  rankearPorQualidade(fragmentos, query, topico = null) {
     if (!fragmentos || fragmentos.length === 0) return [];
 
     const queryLower = query.toLowerCase();
+    const topicoLower = topico ? topico.toLowerCase() : queryLower;
     const queryTermos = this.extrairTermos(queryLower);
+    const topicosTermos = this.extrairTermos(topicoLower);
 
     return fragmentos.map(f => {
       const scoreVetorial = f.score || 0;
       const scoreCompletude = this.calcularCompletude(f.conteudo);
       const scorePosicao = this.calcularScorePosicao(f.metadados);
       const scoreMetadados = this.calcularMatchMetadados(f.metadados, queryTermos);
+      
+      // NOVO: Score de relevância do tópico
+      const scoreTopico = this.calcularRelevanciaTopico(f, topicosTermos);
 
       const scoreFinal = 
         (scoreVetorial * this.pesos.scoreVetorial) +
         (scoreCompletude * this.pesos.completude) +
         (scorePosicao * this.pesos.posicaoDocumento) +
-        (scoreMetadados * this.pesos.matchMetadados);
+        (scoreMetadados * this.pesos.matchMetadados) +
+        (scoreTopico * this.pesos.relevanciaTopico);
 
       return {
         ...f,
@@ -35,10 +43,89 @@ export class SmartRanker {
           vetorial: scoreVetorial,
           completude: scoreCompletude,
           posicao: scorePosicao,
-          metadados: scoreMetadados
-        }
+          metadados: scoreMetadados,
+          topico: scoreTopico
+        },
+        relevante_para_topico: scoreTopico > 0.3
       };
     }).sort((a, b) => b.score_final - a.score_final);
+  }
+
+  // NOVO: Método específico para rankear considerando tópico
+  rankearPorQualidadeETopico(fragmentos, query, topico) {
+    return this.rankearPorQualidade(fragmentos, query, topico);
+  }
+
+  // NOVO: Filtrar por relevância semântica do tópico
+  filtrarPorTopico(fragmentos, topicoConsulta, threshold = 0.4) {
+    if (!fragmentos || fragmentos.length === 0) return [];
+    
+    const topicoLower = topicoConsulta.toLowerCase();
+    const termosTopico = this.extrairTermosRelevantes(topicoLower);
+    
+    return fragmentos.filter(fragmento => {
+      const scoreRelevancia = this.calcularRelevanciaTopicoSimples(fragmento, termosTopico);
+      return scoreRelevancia >= threshold;
+    });
+  }
+
+  // NOVO: Calcular relevância específica para o tópico (versão detalhada)
+  calcularRelevanciaTopico(fragmento, topicosTermos) {
+    if (!topicosTermos || topicosTermos.length === 0) return 0;
+    
+    let score = 0;
+    const conteudoLower = fragmento.conteudo.toLowerCase();
+    
+    // 1. Match com termos do tópico no conteúdo (60%)
+    const matchConteudo = topicosTermos.filter(termo => 
+      conteudoLower.includes(termo)
+    ).length;
+    score += (matchConteudo / Math.max(topicosTermos.length, 1)) * 0.6;
+    
+    // 2. Match com tags (25%)
+    if (fragmento.metadados.tags && Array.isArray(fragmento.metadados.tags)) {
+      const tagsLower = fragmento.metadados.tags.map(t => t.toLowerCase());
+      const matchTags = topicosTermos.filter(termo =>
+        tagsLower.some(tag => tag.includes(termo) || termo.includes(tag))
+      ).length;
+      score += (matchTags / Math.max(topicosTermos.length, 1)) * 0.25;
+    }
+    
+    // 3. Match com nome do arquivo (15%)
+    if (fragmento.metadados.arquivo_nome) {
+      const nomeLower = fragmento.metadados.arquivo_nome.toLowerCase();
+      const matchNome = topicosTermos.filter(termo =>
+        nomeLower.includes(termo)
+      ).length;
+      score += (matchNome / Math.max(topicosTermos.length, 1)) * 0.15;
+    }
+    
+    return Math.min(1, score);
+  }
+
+  // NOVO: Versão simplificada para filtro rápido
+  calcularRelevanciaTopicoSimples(fragmento, termosTopico) {
+    if (!termosTopico || termosTopico.length === 0) return 0;
+    
+    let score = 0;
+    const conteudoLower = fragmento.conteudo.toLowerCase();
+    
+    // Match com conteúdo
+    const matchConteudo = termosTopico.filter(termo => 
+      conteudoLower.includes(termo)
+    ).length;
+    score += (matchConteudo / Math.max(termosTopico.length, 1)) * 0.7;
+    
+    // Match com metadados
+    if (fragmento.metadados.tags) {
+      const tagsLower = fragmento.metadados.tags.map(t => t.toLowerCase());
+      const matchTags = termosTopico.filter(termo =>
+        tagsLower.some(tag => tag.includes(termo))
+      ).length;
+      score += (matchTags / Math.max(termosTopico.length, 1)) * 0.3;
+    }
+    
+    return Math.min(1, score);
   }
 
   calcularCompletude(texto) {
@@ -84,7 +171,6 @@ export class SmartRanker {
     const posicaoRelativa = chunkIndex / totalChunks;
 
     // Chunks do início/meio são geralmente mais informativos
-    // Curva: alto no início, mantém no meio, desce no final
     let score = 0;
     
     if (posicaoRelativa <= 0.1) {
@@ -304,16 +390,37 @@ export class SmartRanker {
       (b.score_final || b.score) - (a.score_final || a.score)
     );
 
-    for (const fragmento of fragmentosOrdenados) {
+    // PRIORIDADE: Materiais relevantes para o tópico
+    const materiaisRelevantes = fragmentosOrdenados.filter(f => f.relevante_para_topico);
+    const materiaisNaoRelevantes = fragmentosOrdenados.filter(f => !f.relevante_para_topico);
+
+    // Primeiro adicionar materiais relevantes
+    for (const fragmento of materiaisRelevantes) {
       if (resultado.length >= limite) break;
 
       const url = fragmento.metadados.arquivo_url;
       const countDoc = documentosUsados.get(url) || 0;
 
-      // Limitar fragmentos por documento (máximo 3)
-      if (countDoc < 3) {
+      // Limitar fragmentos por documento (máximo 2 para materiais relevantes)
+      if (countDoc < 2) {
         resultado.push(fragmento);
         documentosUsados.set(url, countDoc + 1);
+      }
+    }
+
+    // Se ainda não atingiu o limite, adicionar outros materiais
+    if (resultado.length < limite) {
+      for (const fragmento of materiaisNaoRelevantes) {
+        if (resultado.length >= limite) break;
+
+        const url = fragmento.metadados.arquivo_url;
+        const countDoc = documentosUsados.get(url) || 0;
+
+        // Limitar fragmentos por documento (máximo 1 para não relevantes)
+        if (countDoc < 1) {
+          resultado.push(fragmento);
+          documentosUsados.set(url, countDoc + 1);
+        }
       }
     }
 
@@ -330,12 +437,51 @@ export class SmartRanker {
     return resultado;
   }
 
+  // NOVO: Método para validar conjunto de fragmentos
+  validarConjuntoFragmentos(fragmentos, topicoConsulta, minRelevantes = 1) {
+    if (!fragmentos || fragmentos.length === 0) {
+      return {
+        valido: false,
+        totalFragmentos: 0,
+        totalRelevantes: 0,
+        percentualRelevancia: 0,
+        recomendacao: 'buscar_mais_materiais'
+      };
+    }
+
+    const fragmentosRelevantes = fragmentos.filter(f => f.relevante_para_topico);
+    const percentualRelevancia = (fragmentosRelevantes.length / fragmentos.length) * 100;
+
+    return {
+      valido: fragmentosRelevantes.length >= minRelevantes,
+      totalFragmentos: fragmentos.length,
+      totalRelevantes: fragmentosRelevantes.length,
+      percentualRelevancia,
+      fragmentosRelevantes,
+      recomendacao: fragmentosRelevantes.length === 0 ? 
+        'nenhum_material_relevante' : 
+        (percentualRelevancia < 30 ? 'poucos_materiais_relevantes' : 'suficiente')
+    };
+  }
+
   extrairTermos(texto) {
     return texto
       .toLowerCase()
       .replace(/[^\w\sáàâãéèêíïóôõöúçñ]/g, '')
       .split(/\s+/)
       .filter(t => t.length > 2 && !this.isStopWord(t));
+  }
+
+  extrairTermosRelevantes(texto) {
+    const termos = this.extrairTermos(texto);
+    
+    // Filtrar termos muito comuns que não são relevantes para o tópico
+    const termosComuns = new Set([
+      'sobre', 'aprender', 'estudar', 'conhecer', 'saber', 'entender',
+      'quero', 'gostaria', 'preciso', 'sobre', 'acerca', 'assunto'
+    ]);
+    
+    return termos.filter(termo => !termosComuns.has(termo) && termo.length > 3);
   }
 
   isStopWord(palavra) {
@@ -372,5 +518,36 @@ export class SmartRanker {
       
       return f;
     });
+  }
+
+  // NOVO: Método para detectar tópicos específicos nos fragmentos
+  detectarTopicosFragmentos(fragmentos) {
+    if (!fragmentos || fragmentos.length === 0) return [];
+    
+    const contadorTopicos = new Map();
+    
+    for (const fragmento of fragmentos) {
+      // Extrair termos do conteúdo
+      const termos = this.extrairTermos(fragmento.conteudo).slice(0, 10);
+      
+      // Contar ocorrências
+      for (const termo of termos) {
+        contadorTopicos.set(termo, (contadorTopicos.get(termo) || 0) + 1);
+      }
+      
+      // Considerar tags
+      if (fragmento.metadados.tags) {
+        for (const tag of fragmento.metadados.tags) {
+          const tagLower = tag.toLowerCase();
+          contadorTopicos.set(tagLower, (contadorTopicos.get(tagLower) || 0) + 2); // Peso maior para tags
+        }
+      }
+    }
+    
+    // Retornar tópicos mais frequentes
+    return Array.from(contadorTopicos.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([topico]) => topico);
   }
 }
