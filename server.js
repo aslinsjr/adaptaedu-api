@@ -3,7 +3,6 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import { MongoService } from './services/mongoClient.js';
-import { FirebaseService } from './services/firebaseClient.js';
 import { AIService } from './services/aiService.js';
 import { VectorSearchService } from './services/vectorSearchService.js';
 import { ConversationManager } from './services/conversationManager.js';
@@ -33,13 +32,35 @@ app.use((req, res, next) => {
   next();
 });
 
+// Inicialização dos serviços
 const mongo = new MongoService();
-const firebase = new FirebaseService();
 const ai = new AIService();
 const conversationManager = new ConversationManager();
 
-await mongo.connect();
-console.log('✓ Conectado ao MongoDB');
+// Conectar e verificar tópicos disponíveis
+async function initializeServices() {
+  try {
+    await mongo.connect();
+    console.log('✓ Conectado ao MongoDB');
+
+    // Verificar tópicos disponíveis na inicialização
+    const topicos = await mongo.getAvailableTopics();
+    console.log(`✓ Tópicos disponíveis no BD: ${topicos.length} tópicos`);
+    
+    if (topicos.length > 0) {
+      console.log(`✓ Principais tópicos: ${topicos.slice(0, 5).map(t => t.topico).join(', ')}`);
+    } else {
+      console.log('⚠️ Aviso: Nenhum tópico encontrado no BD');
+    }
+
+  } catch (error) {
+    console.error('❌ Erro na inicialização:', error);
+    throw error;
+  }
+}
+
+// Inicializar serviços
+await initializeServices();
 
 const vectorSearch = new VectorSearchService(mongo, ai);
 const textReconstructor = new TextReconstructor(mongo);
@@ -53,8 +74,27 @@ app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
     timestamp: new Date(),
-    uptime: process.uptime()
+    uptime: process.uptime(),
+    message: 'API RAG Edu - Baseada em tópicos disponíveis no BD'
   });
+});
+
+// Endpoint para verificar tópicos disponíveis
+app.get('/api/topicos', async (req, res) => {
+  try {
+    const topicos = await mongo.getAvailableTopics();
+    res.json({
+      total_topicos: topicos.length,
+      topicos: topicos.map(t => ({
+        topico: t.topico,
+        tipos_material: t.tipos,
+        total_fragmentos: t.count,
+        documentos: t.documentos
+      }))
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Limpar conversas antigas a cada 24 horas
@@ -66,7 +106,8 @@ const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
   console.log(`✓ Chat RAG API rodando na porta ${PORT}`);
   console.log(`✓ Health check: http://localhost:${PORT}/health`);
-  console.log(`✓ Modo: Backend inicia com saudação do Edu e analisa primeira resposta do usuário`);
+  console.log(`✓ Tópicos disponíveis: http://localhost:${PORT}/api/topicos`);
+  console.log(`✓ Modo: Todas as respostas baseadas nos tópicos do BD`);
 });
 
 process.on('SIGINT', async () => {
