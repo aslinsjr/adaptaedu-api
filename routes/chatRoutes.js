@@ -89,6 +89,7 @@ async function processarPrimeiraRespostaUsuario(mensagem, conversationId, conver
   const intentDetector = new IntentDetector();
   const smartRanker = new SmartRanker();
   const dialogueManager = new DialogueManager(ai);
+  const contextAnalyzer = new ContextAnalyzer();
 
   const deteccaoIntencao = intentDetector.detectar(mensagem, contextoCompleto);
 
@@ -143,10 +144,64 @@ async function processarPrimeiraRespostaUsuario(mensagem, conversationId, conver
       const topicoInfo = await discovery.verificarSeEhTopicoConhecido(termoBuscado);
 
       if (topicoInfo && topicoInfo.encontrado) {
-        const tiposAmigaveis = mapearTiposParaAmigavel(topicoInfo.tipos_material);
-        resposta = await ai.gerarEngajamentoTopico(topicoInfo.topico, tiposAmigaveis, contextoCompleto.historico);
-        metadata.tipo = 'engajamento_topico';
-        metadata.topico = topicoInfo.topico;
+        // Buscar conteúdo introdutório sobre o tópico
+        const queryIntroducao = `${topicoInfo.topico} introdução apresentação conceitos básicos o que é`;
+        
+        let fragmentosBrutos = await vectorSearch.buscarFragmentosRelevantes(
+          queryIntroducao,
+          {},
+          15
+        );
+
+        if (fragmentosBrutos.length > 0) {
+          // Priorizar conteúdo introdutório
+          let fragmentosRankeados = smartRanker.rankearPorQualidade(fragmentosBrutos, queryIntroducao);
+          
+          // Filtrar e priorizar conteúdo de apresentação
+          const fragmentosApresentacao = fragmentosRankeados.filter(f => 
+            contextAnalyzer.isConteudoApresentacao(f)
+          );
+          
+          const fragmentosExplicativos = fragmentosRankeados.filter(f => 
+            !contextAnalyzer.isConteudoApresentacao(f)
+          );
+
+          // Mesclar: apresentação primeiro, depois explicativos
+          fragmentosRankeados = [...fragmentosApresentacao, ...fragmentosExplicativos];
+          fragmentosRankeados = smartRanker.deduplicarConteudo(fragmentosRankeados);
+          fragmentos = smartRanker.selecionarMelhores(fragmentosRankeados, 5);
+
+          const analiseRelevancia = contextAnalyzer.analisarRelevancia(fragmentos, 0.5);
+
+          if (analiseRelevancia.temConteudoRelevante) {
+            // Gerar explicação inicial com os fragmentos
+            const promptIntroducao = `Apresente uma introdução clara e didática sobre ${topicoInfo.topico}. Comece explicando o que é, para que serve e sua importância. Ao final, pergunte se o usuário quer se aprofundar em algum aspecto específico.`;
+            
+            resposta = await ai.responderComContexto(
+              promptIntroducao,
+              contextoCompleto.historico,
+              analiseRelevancia.fragmentosRelevantes,
+              conversationManager.getPreferencias(conversationId)
+            );
+            
+            metadata.tipo = 'consulta';
+            metadata.topico = topicoInfo.topico;
+            metadata.introducao = true;
+            fragmentos = analiseRelevancia.fragmentosRelevantes;
+          } else {
+            // Fallback: engajamento se não houver conteúdo relevante
+            const tiposAmigaveis = mapearTiposParaAmigavel(topicoInfo.tipos_material);
+            resposta = await ai.gerarEngajamentoTopico(topicoInfo.topico, tiposAmigaveis, contextoCompleto.historico);
+            metadata.tipo = 'engajamento_topico';
+            metadata.topico = topicoInfo.topico;
+          }
+        } else {
+          // Sem fragmentos: engajamento padrão
+          const tiposAmigaveis = mapearTiposParaAmigavel(topicoInfo.tipos_material);
+          resposta = await ai.gerarEngajamentoTopico(topicoInfo.topico, tiposAmigaveis, contextoCompleto.historico);
+          metadata.tipo = 'engajamento_topico';
+          metadata.topico = topicoInfo.topico;
+        }
       } else {
         resposta = `Interessante! Você quer aprender sobre "${termoBuscado}". Vou buscar materiais sobre isso para você. O que especificamente gostaria de saber?`;
         metadata.tipo = 'consulta';
@@ -168,7 +223,6 @@ async function processarPrimeiraRespostaUsuario(mensagem, conversationId, conver
         fragmentosRankeados = smartRanker.deduplicarConteudo(fragmentosRankeados);
         fragmentos = smartRanker.selecionarMelhores(fragmentosRankeados, 5);
 
-        const contextAnalyzer = new ContextAnalyzer();
         const analiseRelevancia = contextAnalyzer.analisarRelevancia(fragmentos, 0.6);
 
         if (analiseRelevancia.temConteudoRelevante) {
