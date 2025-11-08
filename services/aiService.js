@@ -110,15 +110,20 @@ ${f.conteudo}
 `;
     }).join('\n');
 
-    const prompt = `Use APENAS estas informações:
+    const prompt = `Você é um tutor educacional especialista. Use os seguintes materiais de referência para responder à pergunta do aluno:
 
 ${contextoPrepared}
 
-Responda à pergunta do usuário de forma direta (2-3 frases) baseada SOMENTE nos fragmentos acima.
+**INSTRUÇÕES:**
+1. Explique o conceito usando SUAS PRÓPRIAS PALAVRAS, de forma clara e acessível
+2. Destaque os pontos principais de maneira organizada
+3. Mantenha a resposta concisa (3-4 frases no máximo)
+4. Relacione o conteúdo com exemplos práticos quando possível
+5. Ao final, faça uma pergunta reflexiva ou incentive a exploração do tema
 
-Destaque o essencial, cite as fontes e finalize com pergunta engajadora.
+Baseie sua resposta nos materiais fornecidos, mas explique como um tutor faria.
 
-PERGUNTA: ${mensagem}`;
+PERGUNTA DO ALUNO: ${mensagem}`;
 
     try {
       const result = await this.chatModel.generateContent({
