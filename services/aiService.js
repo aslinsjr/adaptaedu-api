@@ -156,15 +156,15 @@ Responda APENAS com JSON válido:
   }
 
   async responderComFragmentos(mensagem, fragmentos, historico = []) {
-    if (!fragmentos || fragmentos.length === 0) {
-      return 'Não encontrei materiais relevantes sobre esse tema. Tente perguntar "o que você ensina?" para ver os tópicos disponíveis.';
-    }
+  if (!fragmentos || fragmentos.length === 0) {
+    return 'Não encontrei materiais relevantes sobre esse tema. Tente perguntar "o que você ensina?" para ver os tópicos disponíveis.';
+  }
 
-    const contextoPrepared = fragmentos.map((f, i) => {
-      const loc = f.metadados?.localizacao;
-      const tipo = f.metadados?.tipo || 'material';
-      
-      return `
+  const contextoPrepared = fragmentos.map((f, i) => {
+    const loc = f.metadados?.localizacao;
+    const tipo = f.metadados?.tipo || 'material';
+    
+    return `
 ┌─── Fonte ${i + 1} [${tipo}] ───┐
 Documento: ${f.metadados?.arquivo_nome || 'Desconhecido'}
 Localização: Pág. ${loc?.pagina || 'N/A'}${loc?.secao ? `, Seção ${loc.secao}` : ''}
@@ -173,57 +173,75 @@ CONTEÚDO:
 ${f.conteudo}
 └────────────────────────────────┘
 `;
-    }).join('\n');
+  }).join('\n');
 
-    const systemPrompt = `${this.personaEdu}
+  const systemPrompt = `${this.personaEdu}
 
 MATERIAIS DISPONÍVEIS:
 
 ${contextoPrepared}
 
-Use APENAS as informações dos fragmentos acima.
-Seja conciso e cite as fontes.`;
+INSTRUÇÕES PARA RESPOSTA:
+1. Use APENAS as informações dos fragmentos acima
+2. Seja CONCISO - máximo 3-4 frases principais
+3. Destaque apenas os pontos mais relevantes
+4. Cite as fontes no final
+5. SEMPRE finalize com uma pergunta engajadora sobre o conteúdo
 
-    try {
-      const historicoFormatado = historico.slice(-5).map(msg => ({
-        role: msg.role === 'user' ? 'user' : 'model',
-        parts: [{ text: msg.content }]
-      }));
+FORMATO DA RESPOSTA:
+- 2-3 frases explicando o conceito principal
+- 1-2 frases com exemplos ou aplicações práticas
+- Citação das fontes
+- Pergunta final para engajar o usuário
 
-      const result = await this.chatModel.generateContent({
-        contents: [
-          ...historicoFormatado,
-          { role: 'user', parts: [{ text: `${systemPrompt}\n\nPERGUNTA: ${mensagem}` }] }
-        ],
-        generationConfig: { 
-          temperature: 0.7,
-          maxOutputTokens: 2048
-        }
-      });
+EXEMPLOS DE PERGUNTAS FINAIS:
+- "Fez sentido? Quer que eu detalhe algum ponto específico?"
+- "Entendeu a ideia? Posso mostrar exemplos práticos?"
+- "Como está seu entendimento? Quer explorar mais algum aspecto?"
+- "Te interessa ver aplicações práticas ou prefere mais teoria?"
 
-      return result.response.text();
+Use APENAS as informações dos fragmentos.`;
 
-    } catch (error) {
-      console.error('Erro ao gerar resposta com Google, tentando Grok:', error);
-      
-      try {
-        const messages = [
-          { role: 'system', content: systemPrompt },
-          ...historico.slice(-5).map(msg => ({ 
-            role: msg.role === 'user' ? 'user' : 'assistant', 
-            content: msg.content 
-          })),
-          { role: 'user', content: `PERGUNTA: ${mensagem}` }
-        ];
-        
-        return await this._callGrokAPI(messages, 0.7, 2048);
-        
-      } catch (grokError) {
-        console.error('Erro com Grok API:', grokError);
-        return 'Desculpe, ocorreu um erro ao processar os materiais. Tente reformular sua pergunta.';
+  try {
+    const historicoFormatado = historico.slice(-5).map(msg => ({
+      role: msg.role === 'user' ? 'user' : 'model',
+      parts: [{ text: msg.content }]
+    }));
+
+    const result = await this.chatModel.generateContent({
+      contents: [
+        ...historicoFormatado,
+        { role: 'user', parts: [{ text: `${systemPrompt}\n\nPERGUNTA: ${mensagem}` }] }
+      ],
+      generationConfig: { 
+        temperature: 0.7,
+        maxOutputTokens: 1024
       }
+    });
+
+    return result.response.text();
+
+  } catch (error) {
+    console.error('Erro ao gerar resposta com Google, tentando Grok:', error);
+    
+    try {
+      const messages = [
+        { role: 'system', content: systemPrompt },
+        ...historico.slice(-5).map(msg => ({ 
+          role: msg.role === 'user' ? 'user' : 'assistant', 
+          content: msg.content 
+        })),
+        { role: 'user', content: `PERGUNTA: ${mensagem}` }
+      ];
+      
+      return await this._callGrokAPI(messages, 0.7, 1024);
+      
+    } catch (grokError) {
+      console.error('Erro com Grok API:', grokError);
+      return 'Desculpe, ocorreu um erro ao processar os materiais. Tente reformular sua pergunta.';
     }
   }
+}
 
   async gerarRespostaCasual(mensagem, historico = []) {
     const prompt = `${this.personaEdu}
