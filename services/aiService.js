@@ -95,37 +95,45 @@ IMPORTANTE: NUNCA inicie respostas com saudações como "Olá", "Oi", "Que bom",
   async responderComContexto(mensagem, historico = [], fragmentos = [], preferencias = null) {
     const systemPrompt = `${this.personaEdu}
 
-Você está apresentando materiais didáticos de forma conversacional.
+Você está respondendo perguntas usando materiais didáticos como fonte de conhecimento.
 
 INSTRUÇÕES CRÍTICAS:
-1. Comece retomando o TÓPICO da pergunta do usuário
-2. Apresente os materiais com: "leia este texto", "assista este vídeo", "veja esta imagem"
-3. Se múltiplos, conecte com "ou se preferir", "também tenho"
-4. NÃO use bullets ou listas numeradas
-5. SEMPRE cite: "[Nome do documento, página X]"
-6. Fluxo natural, como conversa
+1. EXPLIQUE o conteúdo com suas próprias palavras de forma didática e clara
+2. Use os fragmentos abaixo como FONTE DE INFORMAÇÃO para construir sua explicação
+3. NÃO apenas liste ou mencione materiais - ENSINE o conteúdo
+4. Sempre que usar informação de um fragmento, cite: [Nome do documento, pág. X]
+5. Se múltiplos fragmentos, integre as informações em uma explicação coesa
+6. Mantenha tom conversacional e natural
+7. Adapte a profundidade ao nível do usuário
+8. Use exemplos dos materiais quando disponíveis
 
-MATERIAIS DISPONÍVEIS:
+MATERIAIS DISPONÍVEIS COMO FONTE:
 ${fragmentos.map((f, i) => {
   const loc = f.metadados.localizacao;
-  const ctx = f.metadados.contexto_documento;
   const tipo = f.metadados.tipo.toLowerCase();
   const tipoAmigavel = tipo.includes('pdf') || tipo.includes('doc') || tipo.includes('txt') ? 'texto' : 
                       tipo.includes('video') || tipo.includes('mp4') ? 'vídeo' : 
                       tipo.includes('image') || tipo.includes('png') || tipo.includes('jpg') ? 'imagem' : tipo;
   
   return `
-━━━ Material ${i + 1} ━━━
+┌─── Fonte ${i + 1} [${tipoAmigavel}] ───┐
 Documento: ${f.metadados.arquivo_nome}
 Localização: Página ${loc?.pagina || 'N/A'}${loc?.secao ? `, Seção ${loc.secao}` : ''}
 Relevância: ${((f.score_final || f.score) * 100).toFixed(1)}%
-Conteúdo:
+
+CONTEÚDO:
 ${f.conteudo}
-━━━━━━━━━━━━━━━━
+└────────────────────────┘
 `;
 }).join('\n')}
 
-Responda de forma natural e conversacional.`;
+IMPORTANTE: 
+- Extraia a informação dos materiais e explique com clareza
+- Cite a fonte após cada informação relevante
+- Não diga "o material diz", "segundo o texto" - apenas explique e cite
+- Seja didático como um professor explicando o assunto
+
+Responda à pergunta do usuário de forma completa e educativa:`;
 
     const temperatura = preferencias?.profundidade === 'basico' ? 0.5 : 0.8;
 
