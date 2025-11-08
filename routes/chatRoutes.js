@@ -20,11 +20,11 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
       if (!currentId || !conversationManager.getConversa(currentId)) {
         currentId = conversationManager.criar();
         
-        const boasVindas = `Olá! 👋 Sou o Edu, seu assistente educacional.
+        const boasVindas = `Olá! Sou o Edu, seu assistente educacional.
 
-Trabalho com materiais didáticos específicos do banco de dados. Posso mostrar quais tópicos tenho disponíveis ou explicar conteúdos usando os materiais.
+Trabalho com materiais didáticos do banco de dados. Posso mostrar os tópicos disponíveis ou explicar conteúdos específicos.
 
-Pergunte "o que você ensina?" ou faça sua pergunta diretamente!`;
+O que gostaria de aprender hoje?`;
 
         conversationManager.adicionar(currentId, 'assistant', boasVindas, []);
       }
@@ -46,11 +46,11 @@ Pergunte "o que você ensina?" ou faça sua pergunta diretamente!`;
 
       if (orquestracao.acao === 'casual') {
         resposta = orquestracao.resposta_direta || 
-                   await ai.gerarRespostaCasual(mensagem, historico);
+                 await ai.gerarRespostaCasual(mensagem, historico);
         
       } else if (orquestracao.acao === 'descoberta') {
         resposta = orquestracao.resposta_direta || 
-                   await ai.listarTopicos(topicosDisponiveis, historico);
+                 await ai.listarTopicos(topicosDisponiveis, historico);
         metadata.topicos = topicosDisponiveis.slice(0, 10).map(t => ({
           nome: t.topico,
           quantidade: t.fragmentos
@@ -69,9 +69,9 @@ Pergunte "o que você ensina?" ou faça sua pergunta diretamente!`;
         if (fontes.length === 0) {
           resposta = `Não encontrei materiais sobre "${orquestracao.busca.query}".
 
-Os tópicos disponíveis são: ${topicosDisponiveis.slice(0, 5).map(t => t.topico).join(', ')}.
+Tenho: ${topicosDisponiveis.slice(0, 5).map(t => t.topico).join(', ')}.
 
-Sobre qual deles você gostaria de aprender?`;
+Qual te interessa?`;
           
         } else {
           resposta = await ai.responderComFragmentos(mensagem, fontes, historico);
