@@ -67,7 +67,7 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
   const intentAnalyzer = new IntentAnalyzer(ai);
   const discoveryService = new DiscoveryService(mongo);
   const smartRanker = new SmartRanker();
-  const topicValidator = new TopicValidator(mongo, discoveryService);
+  const topicValidator = new TopicValidator(mongo, discoveryService, ai);
 
   conversationManager.mongo = mongo;
   conversationManager.vectorSearch = vectorSearch;
@@ -87,7 +87,6 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
       const contextoCompleto = conversationManager.getContextoCompleto(currentConversationId);
       const preferencias = conversationManager.getPreferencias(currentConversationId);
 
-      // Adicionar materiais pendentes ao contexto conversacional
       const materiaisPendentes = conversationManager.getMateriaisPendentes(currentConversationId);
       if (materiaisPendentes && contextoCompleto.contextoConversacional) {
         contextoCompleto.contextoConversacional.materiaisPendentes = materiaisPendentes.opcoes;
@@ -217,7 +216,7 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
         );
 
         if (!validacao.temConteudo) {
-          const topicoUsado = topicoExtraido || mensagem;
+          const topicoUsado = validacao.topicoUsado;
           const resposta = `Não encontrei materiais sobre "${topicoUsado}" no banco de dados.
 
 Os tópicos disponíveis são: ${validacao.sugestoes.join(', ')}.
@@ -254,7 +253,7 @@ Sobre qual destes você gostaria de aprender?`;
 
         const documentosApresentados = conversationManager.getDocumentosApresentados(currentConversationId);
 
-        const queryParaBusca = topicoExtraido || mensagem;
+        const queryParaBusca = validacao.topicoCorrigido || validacao.topicoUsado || topicoExtraido || mensagem;
 
         let fragmentosBrutos = await vectorSearch.buscarFragmentosRelevantes(
           mensagem,
@@ -268,7 +267,7 @@ Sobre qual destes você gostaria de aprender?`;
         );
 
         if (fragmentosBrutos.length === 0) {
-          const topicoUsado = topicoExtraido || mensagem;
+          const topicoUsado = queryParaBusca;
           const resposta = `Não encontrei mais materiais sobre "${topicoUsado}". Já apresentei todo o conteúdo disponível sobre esse tema. Posso ajudar com outro tópico?`;
 
           conversationManager.atualizarContextoConversacional(
@@ -305,7 +304,7 @@ Sobre qual destes você gostaria de aprender?`;
         const analiseRelevancia = contextAnalyzer.analisarRelevancia(fragmentosFinais, 0.40);
 
         if (!analiseRelevancia.temConteudoRelevante) {
-          const topicoUsado = topicoExtraido || mensagem;
+          const topicoUsado = queryParaBusca;
           const resposta = `Os materiais que encontrei não são suficientemente relevantes para "${topicoUsado}". 
 
 Tente reformular sua pergunta ou pergunte "o que você ensina?" para ver os tópicos disponíveis.`;

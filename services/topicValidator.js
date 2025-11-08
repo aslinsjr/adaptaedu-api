@@ -1,8 +1,9 @@
 // services/topicValidator.js
 export class TopicValidator {
-  constructor(mongoService, discoveryService) {
+  constructor(mongoService, discoveryService, aiService) {
     this.mongo = mongoService;
     this.discovery = discoveryService;
+    this.ai = aiService;
   }
 
   async validarExistenciaConteudo(mensagem, intencao, topicoExtraido = null) {
@@ -19,12 +20,46 @@ export class TopicValidator {
     
     const topicosRelacionados = this.encontrarTopicosRelacionados(termosParaBusca, topicos.topicos);
     
+    if (topicosRelacionados.length > 0) {
+      return {
+        temConteudo: true,
+        topicosEncontrados: topicosRelacionados,
+        sugestoes: this.gerarSugestoes(topicos.topicos, 5),
+        topicoUsado: topicoExtraido || mensagem
+      };
+    }
+
+    const matchIA = await this.verificarMatchComIA(
+      topicoExtraido || mensagem,
+      topicos.topicos
+    );
+
+    if (matchIA.match_encontrado && matchIA.confianca >= 0.7) {
+      return {
+        temConteudo: true,
+        topicosEncontrados: [matchIA.topico],
+        topicoCorrigido: matchIA.topico.nome,
+        sugestoes: this.gerarSugestoes(topicos.topicos, 5),
+        topicoUsado: matchIA.topico.nome,
+        matchPorIA: true
+      };
+    }
+    
     return {
-      temConteudo: topicosRelacionados.length > 0,
-      topicosEncontrados: topicosRelacionados,
+      temConteudo: false,
+      topicosEncontrados: [],
       sugestoes: this.gerarSugestoes(topicos.topicos, 5),
       topicoUsado: topicoExtraido || mensagem
     };
+  }
+
+  async verificarMatchComIA(mensagem, topicosDisponiveis) {
+    try {
+      return await this.ai.matchearTopicoComIA(mensagem, topicosDisponiveis);
+    } catch (error) {
+      console.error('Erro ao verificar match com IA:', error);
+      return { match_encontrado: false, topico: null, confianca: 0 };
+    }
   }
 
   extrairTermosChave(mensagem) {

@@ -1,4 +1,4 @@
-// services/aiService.js (modificado - adicionar método)
+// services/aiService.js
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
 export class AIService {
@@ -51,6 +51,74 @@ REGRAS ABSOLUTAS:
 
     const data = await response.json();
     return data.choices[0].message.content;
+  }
+
+  async matchearTopicoComIA(mensagemUsuario, topicosDisponiveis) {
+    const listaTopicos = topicosDisponiveis.map((t, i) => `${i}: ${t.nome}`).join('\n');
+
+    const prompt = `Você é um assistente que identifica correspondências entre o que o usuário pediu e os tópicos disponíveis.
+
+TÓPICOS DISPONÍVEIS:
+${listaTopicos}
+
+MENSAGEM DO USUÁRIO: "${mensagemUsuario}"
+
+TAREFA: Identifique se a mensagem do usuário corresponde a algum dos tópicos disponíveis, considerando:
+- Sinônimos (ex: "computação" = "informática")
+- Variações de escrita (ex: "informatica" = "informática")
+- Termos relacionados (ex: "programar" pode ser "programação")
+
+RESPONDA APENAS com JSON válido:
+{
+  "match_encontrado": true/false,
+  "indice_topico": número do índice ou null,
+  "topico_nome": "nome do tópico" ou null,
+  "confianca": 0.0 a 1.0
+}
+
+IMPORTANTE: Responda APENAS com JSON válido, sem markdown, sem explicações.`;
+
+    try {
+      const result = await this.chatModel.generateContent({
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: { 
+          temperature: 0.2,
+          maxOutputTokens: 200
+        }
+      });
+
+      let responseText = result.response.text().trim();
+      responseText = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+      
+      const parsed = JSON.parse(responseText);
+      
+      return {
+        match_encontrado: parsed.match_encontrado || false,
+        topico: parsed.match_encontrado ? topicosDisponiveis[parsed.indice_topico] : null,
+        confianca: parsed.confianca || 0
+      };
+
+    } catch (error) {
+      console.error('Erro ao matchear tópico com Google, tentando Grok:', error);
+      
+      try {
+        const messages = [{ role: 'user', content: prompt }];
+        const grokResponse = await this._callGrokAPI(messages, 0.2, 200);
+        let cleanResponse = grokResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+        
+        const parsed = JSON.parse(cleanResponse);
+        
+        return {
+          match_encontrado: parsed.match_encontrado || false,
+          topico: parsed.match_encontrado ? topicosDisponiveis[parsed.indice_topico] : null,
+          confianca: parsed.confianca || 0
+        };
+        
+      } catch (grokError) {
+        console.error('Erro com Grok API:', grokError);
+        return { match_encontrado: false, topico: null, confianca: 0 };
+      }
+    }
   }
 
   async analisarIntencao(mensagem, historico = [], contextoConversacional = null) {
