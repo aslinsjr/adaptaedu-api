@@ -5,31 +5,24 @@ export class VectorSearchService {
     this.ai = aiService;
   }
 
-  // Normalização de tipos para garantir consistência
   normalizeTipo(tipo) {
     if (!tipo || typeof tipo !== 'string') return null;
     
     const tipoLower = tipo.trim().toLowerCase();
     
-    // Mapeamento de tipos para valores padronizados
     const mapeamento = {
-      // PDFs e documentos texto
       'pdf': 'pdf',
       'doc': 'doc',
       'docx': 'docx',
       'txt': 'txt',
       'texto': 'txt',
       'document': 'doc',
-      
-      // Vídeos
       'video': 'video',
       'vídeo': 'video',
       'mp4': 'video',
       'avi': 'video',
       'mkv': 'video',
       'mov': 'video',
-      
-      // Imagens
       'imagem': 'imagem',
       'image': 'imagem',
       'img': 'imagem',
@@ -38,21 +31,16 @@ export class VectorSearchService {
       'jpeg': 'imagem',
       'gif': 'imagem',
       'webp': 'imagem',
-      
-      // Áudio
       'audio': 'audio',
       'áudio': 'audio',
       'mp3': 'audio',
       'wav': 'audio',
       'ogg': 'audio',
-      
-      // Outros
       'apresentação': 'pptx',
       'apresentacao': 'pptx',
       'ppt': 'pptx',
       'pptx': 'pptx',
       'slides': 'pptx',
-      
       'planilha': 'xlsx',
       'excel': 'xlsx',
       'xls': 'xlsx',
@@ -63,24 +51,22 @@ export class VectorSearchService {
     return mapeamento[tipoLower] || tipoLower;
   }
 
-  async buscarFragmentosRelevantes(query, filtros = {}, limite = 5) {
-    const queryEmbedding = await this.ai.createEmbedding(query);
+  async buscarFragmentosRelevantes(query, filtros = {}, limite = 5, queryRefinada = null) {
+    const queryParaBusca = queryRefinada || query;
+    const queryEmbedding = await this.ai.createEmbedding(queryParaBusca);
     
     const mongoFiltros = {};
 
-    // === FILTRO POR TAGS ===
     if (filtros.tags && Array.isArray(filtros.tags) && filtros.tags.length > 0) {
       mongoFiltros['metadados.tags'] = { $in: filtros.tags };
     }
 
-    // === FILTRO POR MÚLTIPLOS TIPOS (com normalização) ===
     if (filtros.tiposSolicitados && Array.isArray(filtros.tiposSolicitados) && filtros.tiposSolicitados.length > 0) {
       const tiposNormalizados = filtros.tiposSolicitados
         .map(t => this.normalizeTipo(t))
         .filter(t => t !== null);
 
       if (tiposNormalizados.length > 0) {
-        // Criar regex case-insensitive para cada tipo
         mongoFiltros['$or'] = tiposNormalizados.map(tipo => ({
           'metadados.tipo': { 
             $regex: new RegExp(`^${tipo}$`, 'i') 
@@ -88,7 +74,6 @@ export class VectorSearchService {
         }));
       }
     }
-    // === FILTRO POR TIPO ÚNICO (com normalização) ===
     else if (filtros.tipo && typeof filtros.tipo === 'string') {
       const tipoNormalizado = this.normalizeTipo(filtros.tipo);
       if (tipoNormalizado) {
@@ -98,7 +83,6 @@ export class VectorSearchService {
       }
     }
 
-    // === FILTRO POR FONTE (com regex) ===
     if (filtros.fonte && typeof filtros.fonte === 'string' && filtros.fonte.trim()) {
       mongoFiltros['metadados.fonte'] = { 
         $regex: filtros.fonte.trim(), 
@@ -106,12 +90,10 @@ export class VectorSearchService {
       };
     }
 
-    // === FILTRO POR ARQUIVO URL ===
     if (filtros.arquivo_url && typeof filtros.arquivo_url === 'string') {
       mongoFiltros['metadados.arquivo_url'] = filtros.arquivo_url;
     }
 
-    // === FILTRO POR ARQUIVO NOME ===
     if (filtros.arquivo_nome && typeof filtros.arquivo_nome === 'string') {
       mongoFiltros['metadados.arquivo_nome'] = {
         $regex: filtros.arquivo_nome.trim(),
@@ -119,8 +101,8 @@ export class VectorSearchService {
       };
     }
 
-    // Debug (remova em produção)
     if (process.env.DEBUG === 'true') {
+      console.log('Query refinada:', queryParaBusca);
       console.log('Filtros Vector Search:', JSON.stringify(mongoFiltros, null, 2));
     }
 

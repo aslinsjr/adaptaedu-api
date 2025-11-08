@@ -1,4 +1,4 @@
-// routes/chatRoutes.js (modificado)
+// routes/chatRoutes.js
 import express from 'express';
 import { ResponseFormatter } from '../utils/responseFormatter.js';
 import { DialogueManager } from '../services/dialogueManager.js';
@@ -82,15 +82,17 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
 
       currentConversationId = conversationId;
 
-      // INICIAR CONVERSA COM SAUDAÇÃO
       currentConversationId = await iniciarConversaComSaudacao(conversationManager, currentConversationId, ai);
 
-      // OBTER CONTEXTO
       const contextoCompleto = conversationManager.getContextoCompleto(currentConversationId);
       const preferencias = conversationManager.getPreferencias(currentConversationId);
 
-      // --- TRATAMENTO DE ESCOLHA PENDENTE ---
+      // Adicionar materiais pendentes ao contexto conversacional
       const materiaisPendentes = conversationManager.getMateriaisPendentes(currentConversationId);
+      if (materiaisPendentes && contextoCompleto.contextoConversacional) {
+        contextoCompleto.contextoConversacional.materiaisPendentes = materiaisPendentes.opcoes;
+      }
+
       if (materiaisPendentes) {
         const escolha = extrairEscolha(mensagem, materiaisPendentes.opcoes.length);
         if (escolha !== null && escolha >= 0 && escolha < materiaisPendentes.opcoes.length) {
@@ -135,15 +137,10 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
         }
       }
 
-      // Adicionar mensagem do usuário
       conversationManager.adicionarMensagem(currentConversationId, 'user', mensagem);
 
-      // DETECTAR INTENÇÃO COM IA
       const deteccaoIntencao = await intentAnalyzer.analisarComIA(mensagem, contextoCompleto);
 
-      // ===== PROCESSAMENTO POR INTENÇÃO =====
-
-      // 1. CASUAL - apenas saudações
       if (deteccaoIntencao.intencao === 'casual') {
         const resposta = await ai.conversarLivremente(mensagem, contextoCompleto.historico);
 
@@ -171,7 +168,6 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
         ));
       }
 
-      // 2. DESCOBERTA - mostrar tópicos disponíveis
       if (deteccaoIntencao.intencao === 'descoberta') {
         const dadosDisponiveis = await discoveryService.listarTopicosDisponiveis();
         const apresentacao = discoveryService.formatarParaApresentacao(dadosDisponiveis);
@@ -211,13 +207,18 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
         ));
       }
 
-      // 3. CONSULTA - buscar no BD e responder
       if (deteccaoIntencao.intencao === 'consulta') {
-        // VALIDAÇÃO: Tem conteúdo no BD?
-        const validacao = await topicValidator.validarExistenciaConteudo(mensagem, 'consulta');
+        const topicoExtraido = deteccaoIntencao.metadados?.topico_mencionado;
+        
+        const validacao = await topicValidator.validarExistenciaConteudo(
+          mensagem, 
+          'consulta',
+          topicoExtraido
+        );
 
         if (!validacao.temConteudo) {
-          const resposta = `Não encontrei materiais sobre "${mensagem}" no banco de dados.
+          const topicoUsado = topicoExtraido || mensagem;
+          const resposta = `Não encontrei materiais sobre "${topicoUsado}" no banco de dados.
 
 Os tópicos disponíveis são: ${validacao.sugestoes.join(', ')}.
 
@@ -247,26 +248,28 @@ Sobre qual destes você gostaria de aprender?`;
           ));
         }
 
-        // BUSCAR FRAGMENTOS (usar tipo detectado pela IA se disponível)
         const tipoMidiaSolicitado = deteccaoIntencao.metadados?.tipo_material_solicitado 
           ? { tipo: deteccaoIntencao.metadados.tipo_material_solicitado, filtros: [deteccaoIntencao.metadados.tipo_material_solicitado] }
           : dialogueManager.detectarTipoMidiaSolicitado(mensagem);
 
         const documentosApresentados = conversationManager.getDocumentosApresentados(currentConversationId);
 
+        const queryParaBusca = topicoExtraido || mensagem;
+
         let fragmentosBrutos = await vectorSearch.buscarFragmentosRelevantes(
           mensagem,
           { tipo: tipoMidiaSolicitado?.tipo, tiposSolicitados: tipoMidiaSolicitado?.filtros },
-          20
+          20,
+          queryParaBusca
         );
 
-        // Filtrar documentos já apresentados
         fragmentosBrutos = fragmentosBrutos.filter(f => 
           !documentosApresentados.includes(f.metadados.arquivo_url)
         );
 
         if (fragmentosBrutos.length === 0) {
-          const resposta = `Não encontrei mais materiais sobre "${mensagem}". Já apresentei todo o conteúdo disponível sobre esse tema. Posso ajudar com outro tópico?`;
+          const topicoUsado = topicoExtraido || mensagem;
+          const resposta = `Não encontrei mais materiais sobre "${topicoUsado}". Já apresentei todo o conteúdo disponível sobre esse tema. Posso ajudar com outro tópico?`;
 
           conversationManager.atualizarContextoConversacional(
             currentConversationId,
@@ -292,19 +295,18 @@ Sobre qual destes você gostaria de aprender?`;
           ));
         }
 
-        // RANKEAR E PROCESSAR
-        let fragmentosRankeados = smartRanker.rankearPorQualidade(fragmentosBrutos, mensagem);
+        let fragmentosRankeados = smartRanker.rankearPorQualidade(fragmentosBrutos, queryParaBusca);
         fragmentosRankeados = smartRanker.deduplicarConteudo(fragmentosRankeados);
         fragmentosRankeados = smartRanker.agruparChunksContiguos(fragmentosRankeados);
         
         const maxFragmentos = preferencias?.limiteFragmentos || 5;
         let fragmentosFinais = smartRanker.selecionarMelhores(fragmentosRankeados, maxFragmentos);
 
-        // VALIDAR RELEVÂNCIA
         const analiseRelevancia = contextAnalyzer.analisarRelevancia(fragmentosFinais, 0.40);
 
         if (!analiseRelevancia.temConteudoRelevante) {
-          const resposta = `Os materiais que encontrei não são suficientemente relevantes para "${mensagem}". 
+          const topicoUsado = topicoExtraido || mensagem;
+          const resposta = `Os materiais que encontrei não são suficientemente relevantes para "${topicoUsado}". 
 
 Tente reformular sua pergunta ou pergunte "o que você ensina?" para ver os tópicos disponíveis.`;
 
@@ -332,10 +334,8 @@ Tente reformular sua pergunta ou pergunte "o que você ensina?" para ver os tóp
           ));
         }
 
-        // AGRUPAR POR DOCUMENTO
         const documentosAgrupados = contextAnalyzer.agruparPorDocumento(analiseRelevancia.fragmentosRelevantes);
 
-        // MÚLTIPLOS DOCUMENTOS → Oferecer escolha
         if (documentosAgrupados.length > 1) {
           const opcoes = documentosAgrupados.map(doc => ({
             arquivo_url: doc.arquivo_url,
@@ -382,7 +382,6 @@ Tente reformular sua pergunta ou pergunte "o que você ensina?" para ver os tóp
           ));
         }
 
-        // ÚNICO DOCUMENTO → Responder diretamente
         try {
           const resposta = await ai.responderComContexto(
             mensagem,
@@ -436,7 +435,6 @@ Tente reformular sua pergunta ou pergunte "o que você ensina?" para ver os tóp
         }
       }
 
-      // Fallback
       const resposta = 'Desculpe, não entendi. Pode reformular?';
       conversationManager.adicionarMensagem(
         currentConversationId,

@@ -5,27 +5,25 @@ export class TopicValidator {
     this.discovery = discoveryService;
   }
 
-  async validarExistenciaConteudo(mensagem, intencao) {
-    // Intenções que não precisam validar
+  async validarExistenciaConteudo(mensagem, intencao, topicoExtraido = null) {
     const intencoesIsentas = ['casual', 'descoberta'];
     if (intencoesIsentas.includes(intencao)) {
       return { temConteudo: true, bypass: true };
     }
 
-    // Obter tópicos do BD
-    const { topicos } = await this.discovery.listarTopicosDisponiveis();
+    const topicos = await this.discovery.listarTopicosDisponiveis();
     
-    // Extrair termos da mensagem
-    const termos = this.extrairTermosChave(mensagem);
+    const termosParaBusca = topicoExtraido 
+      ? this.extrairTermosChave(topicoExtraido)
+      : this.extrairTermosChave(mensagem);
     
-    // Buscar matches
-    const topicosRelacionados = this.encontrarTopicosRelacionados(termos, topicos);
+    const topicosRelacionados = this.encontrarTopicosRelacionados(termosParaBusca, topicos.topicos);
     
-    // VALIDAÇÃO RÍGIDA: se não tem tópico relacionado, não tem conteúdo
     return {
       temConteudo: topicosRelacionados.length > 0,
       topicosEncontrados: topicosRelacionados,
-      sugestoes: this.gerarSugestoes(topicos, 5)
+      sugestoes: this.gerarSugestoes(topicos.topicos, 5),
+      topicoUsado: topicoExtraido || mensagem
     };
   }
 
