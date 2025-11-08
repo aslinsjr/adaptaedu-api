@@ -122,7 +122,7 @@ ${contextoPrepared}
 5. Ao final, faça uma pergunta reflexiva ou incentive a exploração do tema
 6. Separe blocos de frases e pule linhas para organizar a exibição
 
-Baseie sua resposta somente nos materiais fornecidos, mas explique como um tutor faria. Caso não haja material informe ao usuário os disponiveis.
+Baseie sua resposta somente nos materiais fornecidos, mas explique como um tutor faria. Caso não haja material informe ao usuário quais tópicos possue no material.
 
 PERGUNTA DO ALUNO: ${mensagem}`;
 
