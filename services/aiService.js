@@ -121,6 +121,7 @@ ${contextoPrepared}
 4. Relacione o conteúdo com exemplos práticos quando possível
 5. Ao final, faça uma pergunta reflexiva ou incentive a exploração do tema
 6. Separe blocos de frases e pule linhas para organizar a exibição
+7. Adicione as fontes dos materias consultados se houverem em tamanho menor
 
 Baseie sua resposta nos materiais fornecidos, mas explique como um tutor faria.
 
