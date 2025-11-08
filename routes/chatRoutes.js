@@ -1,9 +1,9 @@
-// routes/chatRoutes.js
+// routes/chatRoutes.js (modificado)
 import express from 'express';
 import { ResponseFormatter } from '../utils/responseFormatter.js';
 import { DialogueManager } from '../services/dialogueManager.js';
 import { ContextAnalyzer } from '../services/contextAnalyzer.js';
-import { IntentDetector } from '../services/intentDetector.js';
+import { IntentAnalyzer } from '../services/intentAnalyzer.js';
 import { DiscoveryService } from '../services/discoveryService.js';
 import { SmartRanker } from '../services/smartRanker.js';
 import { TopicValidator } from '../services/topicValidator.js';
@@ -64,7 +64,7 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
   const router = express.Router();
   const dialogueManager = new DialogueManager(ai);
   const contextAnalyzer = new ContextAnalyzer();
-  const intentDetector = new IntentDetector();
+  const intentAnalyzer = new IntentAnalyzer(ai);
   const discoveryService = new DiscoveryService(mongo);
   const smartRanker = new SmartRanker();
   const topicValidator = new TopicValidator(mongo, discoveryService);
@@ -138,8 +138,8 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
       // Adicionar mensagem do usuário
       conversationManager.adicionarMensagem(currentConversationId, 'user', mensagem);
 
-      // DETECTAR INTENÇÃO
-      const deteccaoIntencao = intentDetector.detectar(mensagem, contextoCompleto);
+      // DETECTAR INTENÇÃO COM IA
+      const deteccaoIntencao = await intentAnalyzer.analisarComIA(mensagem, contextoCompleto);
 
       // ===== PROCESSAMENTO POR INTENÇÃO =====
 
@@ -160,7 +160,7 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
           'assistant',
           resposta,
           [],
-          { tipo: 'casual', intencaoDetectada: 'casual' }
+          { tipo: 'casual', intencaoDetectada: 'casual', ia_metadata: deteccaoIntencao.metadados }
         );
 
         return res.json(ResponseFormatter.formatChatResponse(
@@ -200,7 +200,7 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
           'assistant',
           resposta,
           [],
-          { tipo: 'descoberta', intencaoDetectada: 'descoberta' }
+          { tipo: 'descoberta', intencaoDetectada: 'descoberta', ia_metadata: deteccaoIntencao.metadados }
         );
 
         return res.json(ResponseFormatter.formatDiscoveryResponse(
@@ -213,7 +213,7 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
 
       // 3. CONSULTA - buscar no BD e responder
       if (deteccaoIntencao.intencao === 'consulta') {
-        // VALIDAÇÃO RÍGIDA: Tem conteúdo no BD?
+        // VALIDAÇÃO: Tem conteúdo no BD?
         const validacao = await topicValidator.validarExistenciaConteudo(mensagem, 'consulta');
 
         if (!validacao.temConteudo) {
@@ -236,7 +236,7 @@ Sobre qual destes você gostaria de aprender?`;
             'assistant',
             resposta,
             [],
-            { tipo: 'sem_conteudo', sugestoes: validacao.sugestoes, intencaoDetectada: 'consulta' }
+            { tipo: 'sem_conteudo', sugestoes: validacao.sugestoes, intencaoDetectada: 'consulta', ia_metadata: deteccaoIntencao.metadados }
           );
 
           return res.json(ResponseFormatter.formatChatResponse(
@@ -247,8 +247,11 @@ Sobre qual destes você gostaria de aprender?`;
           ));
         }
 
-        // BUSCAR FRAGMENTOS
-        const tipoMidiaSolicitado = dialogueManager.detectarTipoMidiaSolicitado(mensagem);
+        // BUSCAR FRAGMENTOS (usar tipo detectado pela IA se disponível)
+        const tipoMidiaSolicitado = deteccaoIntencao.metadados?.tipo_material_solicitado 
+          ? { tipo: deteccaoIntencao.metadados.tipo_material_solicitado, filtros: [deteccaoIntencao.metadados.tipo_material_solicitado] }
+          : dialogueManager.detectarTipoMidiaSolicitado(mensagem);
+
         const documentosApresentados = conversationManager.getDocumentosApresentados(currentConversationId);
 
         let fragmentosBrutos = await vectorSearch.buscarFragmentosRelevantes(
@@ -278,7 +281,7 @@ Sobre qual destes você gostaria de aprender?`;
             'assistant',
             resposta,
             [],
-            { tipo: 'sem_resultado', intencaoDetectada: 'consulta' }
+            { tipo: 'sem_resultado', intencaoDetectada: 'consulta', ia_metadata: deteccaoIntencao.metadados }
           );
 
           return res.json(ResponseFormatter.formatChatResponse(
@@ -318,7 +321,7 @@ Tente reformular sua pergunta ou pergunte "o que você ensina?" para ver os tóp
             'assistant',
             resposta,
             [],
-            { tipo: 'baixa_relevancia', intencaoDetectada: 'consulta' }
+            { tipo: 'baixa_relevancia', intencaoDetectada: 'consulta', ia_metadata: deteccaoIntencao.metadados }
           );
 
           return res.json(ResponseFormatter.formatChatResponse(
@@ -361,7 +364,7 @@ Tente reformular sua pergunta ou pergunte "o que você ensina?" para ver os tóp
             'assistant',
             resposta,
             [],
-            { tipo: 'lista_materiais', intencaoDetectada: 'consulta' }
+            { tipo: 'lista_materiais', intencaoDetectada: 'consulta', ia_metadata: deteccaoIntencao.metadados }
           );
 
           return res.json(ResponseFormatter.formatChatResponse(
@@ -404,7 +407,7 @@ Tente reformular sua pergunta ou pergunte "o que você ensina?" para ver os tóp
             'assistant',
             resposta,
             analiseRelevancia.fragmentosRelevantes,
-            { tipo: 'consulta', intencaoDetectada: 'consulta' }
+            { tipo: 'consulta', intencaoDetectada: 'consulta', ia_metadata: deteccaoIntencao.metadados }
           );
 
           return res.json(ResponseFormatter.formatChatResponse(
@@ -414,7 +417,6 @@ Tente reformular sua pergunta ou pergunte "o que você ensina?" para ver os tóp
             { tipo: 'consulta' }
           ));
         } catch (error) {
-          // Erro ao responder com contexto (sem fragmentos válidos)
           const resposta = `Desculpe, não consegui processar os materiais encontrados. Tente reformular sua pergunta.`;
 
           conversationManager.adicionarMensagem(
@@ -422,7 +424,7 @@ Tente reformular sua pergunta ou pergunte "o que você ensina?" para ver os tóp
             'assistant',
             resposta,
             [],
-            { tipo: 'erro', intencaoDetectada: 'consulta' }
+            { tipo: 'erro', intencaoDetectada: 'consulta', ia_metadata: deteccaoIntencao.metadados }
           );
 
           return res.json(ResponseFormatter.formatChatResponse(
@@ -434,7 +436,7 @@ Tente reformular sua pergunta ou pergunte "o que você ensina?" para ver os tóp
         }
       }
 
-      // Fallback (não deveria chegar aqui)
+      // Fallback
       const resposta = 'Desculpe, não entendi. Pode reformular?';
       conversationManager.adicionarMensagem(
         currentConversationId,
@@ -457,7 +459,6 @@ Tente reformular sua pergunta ou pergunte "o que você ensina?" para ver os tóp
     }
   });
 
-  // Rotas de gerenciamento
   router.get('/conversas/:conversationId', async (req, res) => {
     try {
       const { conversationId } = req.params;

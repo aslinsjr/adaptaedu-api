@@ -1,4 +1,4 @@
-// services/aiService.js
+// services/aiService.js (modificado - adicionar método)
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
 export class AIService {
@@ -53,7 +53,88 @@ REGRAS ABSOLUTAS:
     return data.choices[0].message.content;
   }
 
-  // MODIFICADO: Apenas para saudações casuais
+  async analisarIntencao(mensagem, historico = [], contextoConversacional = null) {
+    const historicoResumo = historico.slice(-3).map(msg => 
+      `${msg.role}: ${msg.content.substring(0, 100)}`
+    ).join('\n');
+
+    const prompt = `Você é um analisador de intenções para um assistente educacional.
+
+MENSAGEM DO USUÁRIO: "${mensagem}"
+
+HISTÓRICO RECENTE:
+${historicoResumo || 'Nenhum'}
+
+CONTEXTO CONVERSACIONAL:
+${JSON.stringify(contextoConversacional || {})}
+
+CLASSIFIQUE a intenção em uma destas categorias:
+
+1. "casual" - Saudações, agradecimentos, despedidas (oi, olá, obrigado, tchau)
+2. "descoberta" - Exploração de tópicos disponíveis (o que você ensina? quais assuntos tem?)
+3. "consulta" - Pergunta sobre conteúdo específico para aprender
+4. "escolha_material" - Escolha numérica de material (1, 2, primeiro, segundo)
+
+RESPONDA APENAS com JSON válido:
+{
+  "intencao": "casual" | "descoberta" | "consulta" | "escolha_material",
+  "confianca": 0.0 a 1.0,
+  "metadados": {
+    "topico_mencionado": "string ou null",
+    "tipo_material_solicitado": "video" | "texto" | "imagem" | "audio" | null,
+    "necessita_busca": true | false,
+    "razao": "breve explicação"
+  }
+}
+
+IMPORTANTE: Responda APENAS com JSON válido, sem markdown, sem explicações adicionais.`;
+
+    try {
+      const result = await this.chatModel.generateContent({
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: { 
+          temperature: 0.3,
+          maxOutputTokens: 500
+        }
+      });
+
+      let responseText = result.response.text().trim();
+      responseText = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+      
+      const parsed = JSON.parse(responseText);
+      
+      return {
+        intencao: parsed.intencao || 'consulta',
+        confianca: parsed.confianca || 0.8,
+        metadados: parsed.metadados || {}
+      };
+
+    } catch (error) {
+      console.error('Erro ao analisar intenção com Google, tentando Grok:', error);
+      
+      try {
+        const messages = [
+          { role: 'user', content: prompt }
+        ];
+        
+        const grokResponse = await this._callGrokAPI(messages, 0.3, 500);
+        let cleanResponse = grokResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+        
+        const parsed = JSON.parse(cleanResponse);
+        
+        return {
+          intencao: parsed.intencao || 'consulta',
+          confianca: parsed.confianca || 0.8,
+          metadados: parsed.metadados || {}
+        };
+        
+      } catch (grokError) {
+        console.error('Erro com Grok API:', grokError);
+        throw new Error('Falha ao analisar intenção com ambas APIs');
+      }
+    }
+  }
+
   async conversarLivremente(mensagem, historico = [], contextoSistema = '') {
     const systemPrompt = `${this.personaEdu}
 
@@ -92,9 +173,7 @@ NUNCA responda perguntas sobre conteúdo - apenas saudações.`;
     }
   }
 
-  // MODIFICADO: Validação rígida de fragmentos
   async responderComContexto(mensagem, historico = [], fragmentos = [], preferencias = null) {
-    // CRÍTICO: Sem fragmentos = sem resposta
     if (!fragmentos || fragmentos.length === 0) {
       throw new Error('Não é possível responder sem fragmentos válidos');
     }
@@ -117,7 +196,7 @@ Localização: Página ${loc?.pagina || 'N/A'}${loc?.secao ? `, Seção ${loc.se
 
 CONTEÚDO:
 ${f.conteudo}
-└────────────────────────────┘
+└────────────────────────────────┘
 `;
 }).join('\n')}
 

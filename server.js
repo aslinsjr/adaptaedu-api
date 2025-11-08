@@ -3,7 +3,6 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import { MongoService } from './services/mongoClient.js';
-import { FirebaseService } from './services/firebaseClient.js';
 import { AIService } from './services/aiService.js';
 import { VectorSearchService } from './services/vectorSearchService.js';
 import { ConversationManager } from './services/conversationManager.js';
