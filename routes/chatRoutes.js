@@ -6,6 +6,7 @@ import { ContextAnalyzer } from '../services/contextAnalyzer.js';
 import { IntentDetector } from '../services/intentDetector.js';
 import { DiscoveryService } from '../services/discoveryService.js';
 import { SmartRanker } from '../services/smartRanker.js';
+import { TopicValidator } from '../services/topicValidator.js';
 
 function mapearTiposParaAmigavel(tipos) {
   const mapeamento = {
@@ -39,14 +40,14 @@ function extrairEscolha(mensagem, maxOpcoes) {
 // FUNÇÃO PARA INICIAR CONVERSA COM SAUDAÇÃO DO EDU
 async function iniciarConversaComSaudacao(conversationManager, conversationId, ai) {
   let currentConversationId = conversationId;
-  
+
   if (!currentConversationId) {
     currentConversationId = conversationManager.criarConversa();
   }
 
   // Verificar se já tem a mensagem de boas-vindas
   const conversa = conversationManager.getConversa(currentConversationId);
-  const temSaudacao = conversa.mensagens.some(msg => 
+  const temSaudacao = conversa.mensagens.some(msg =>
     msg.role === 'assistant' && msg.metadata?.tipo === 'boas_vindas'
   );
 
@@ -66,9 +67,9 @@ Como posso te ajudar hoje? Pode fazer qualquer pergunta ou me dizer sobre o que 
       'assistant',
       mensagemBoasVindas,
       [],
-      { 
+      {
         tipo: 'boas_vindas',
-        primeira_interacao: true 
+        primeira_interacao: true
       }
     );
 
@@ -88,9 +89,9 @@ async function processarPrimeiraRespostaUsuario(mensagem, conversationId, conver
   const intentDetector = new IntentDetector();
   const smartRanker = new SmartRanker();
   const dialogueManager = new DialogueManager(ai);
-  
+
   const deteccaoIntencao = intentDetector.detectar(mensagem, contextoCompleto);
-  
+
   // Detectar preferências implícitas na primeira mensagem
   const preferenciasDetectadas = dialogueManager.detectarPreferenciaImplicita(mensagem);
   if (preferenciasDetectadas) {
@@ -99,7 +100,7 @@ async function processarPrimeiraRespostaUsuario(mensagem, conversationId, conver
 
   let resposta = '';
   let fragmentos = [];
-  let metadata = { 
+  let metadata = {
     tipo: 'resposta',
     primeira_resposta: true,
     intencaoDetectada: deteccaoIntencao.intencao
@@ -124,13 +125,13 @@ async function processarPrimeiraRespostaUsuario(mensagem, conversationId, conver
         tipo: mapearTiposParaAmigavel([t.tipo])[0],
         quantidade: t.quantidade
       }));
-      
+
       const topicosComTiposAmigaveis = apresentacao.destaques.map(t => ({
         nome: t.nome,
         tipos_disponiveis: mapearTiposParaAmigavel(t.tipos_disponiveis),
         quantidade: t.quantidade
       }));
-      
+
       resposta = await ai.apresentarTopicos(topicosComTiposAmigaveis, tiposMaterialAmigaveis, contextoCompleto.historico);
       metadata.tipo = 'descoberta';
       metadata.topicos = apresentacao.destaques;
@@ -140,7 +141,7 @@ async function processarPrimeiraRespostaUsuario(mensagem, conversationId, conver
       const termoBuscado = deteccaoIntencao.metadados.termoBuscado;
       const discovery = new DiscoveryService(conversationManager.mongo);
       const topicoInfo = await discovery.verificarSeEhTopicoConhecido(termoBuscado);
-      
+
       if (topicoInfo && topicoInfo.encontrado) {
         const tiposAmigaveis = mapearTiposParaAmigavel(topicoInfo.tipos_material);
         resposta = await ai.gerarEngajamentoTopico(topicoInfo.topico, tiposAmigaveis, contextoCompleto.historico);
@@ -155,7 +156,7 @@ async function processarPrimeiraRespostaUsuario(mensagem, conversationId, conver
     default:
       // CONSULTA NORMAL - Buscar materiais relevantes
       const tipoMidiaSolicitado = dialogueManager.detectarTipoMidiaSolicitado(mensagem);
-      
+
       let fragmentosBrutos = await vectorSearch.buscarFragmentosRelevantes(
         mensagem,
         { tipo: tipoMidiaSolicitado?.tipo, tiposSolicitados: tipoMidiaSolicitado?.filtros },
@@ -166,7 +167,7 @@ async function processarPrimeiraRespostaUsuario(mensagem, conversationId, conver
         let fragmentosRankeados = smartRanker.rankearPorQualidade(fragmentosBrutos, mensagem);
         fragmentosRankeados = smartRanker.deduplicarConteudo(fragmentosRankeados);
         fragmentos = smartRanker.selecionarMelhores(fragmentosRankeados, 5);
-        
+
         const contextAnalyzer = new ContextAnalyzer();
         const analiseRelevancia = contextAnalyzer.analisarRelevancia(fragmentos, 0.6);
 
@@ -208,14 +209,14 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
 
   router.post('/chat', async (req, res) => {
     let currentConversationId;
-    
+
     try {
       const { mensagem, conversationId } = req.body;
       if (!mensagem) return res.status(400).json(ResponseFormatter.formatError('Mensagem é obrigatória', 400));
 
       currentConversationId = conversationId;
       let preferencias = null;
-      
+
       // INICIAR CONVERSA COM SAUDAÇÃO DO EDU (se necessário)
       currentConversationId = await iniciarConversaComSaudacao(conversationManager, currentConversationId, ai);
       preferencias = conversationManager.getPreferencias(currentConversationId);
@@ -234,18 +235,18 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
         if (escolha !== null && escolha >= 0 && escolha < materiaisPendentes.opcoes.length) {
           const materialEscolhido = materiaisPendentes.opcoes[escolha];
           conversationManager.adicionarMensagem(currentConversationId, 'user', mensagem);
-          
+
           const resposta = await ai.responderComContexto(
             materiaisPendentes.contexto.mensagem_original || mensagem,
             contextoCompleto.historico,
             materialEscolhido.fragmentos,
             preferencias
           );
-          
+
           const documentosUsados = [materialEscolhido.arquivo_url];
           conversationManager.registrarDocumentosApresentados(currentConversationId, documentosUsados);
           conversationManager.limparMateriaisPendentes(currentConversationId);
-          
+
           conversationManager.atualizarContextoConversacional(
             currentConversationId,
             mensagem,
@@ -253,19 +254,19 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
             'escolha_material',
             { tipo: 'consulta', material_escolhido: materialEscolhido.arquivo_nome }
           );
-          
+
           conversationManager.adicionarMensagem(
             currentConversationId,
             'assistant',
             resposta,
             materialEscolhido.fragmentos,
-            { 
-              tipo: 'consulta', 
+            {
+              tipo: 'consulta',
               escolha_processada: true,
               intencaoDetectada: 'escolha_material'
             }
           );
-          
+
           return res.json(ResponseFormatter.formatChatResponse(
             currentConversationId,
             resposta,
@@ -282,6 +283,51 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
 
       // DETECTAR INTENÇÃO COM CONTEXTO COMPLETO
       const deteccaoIntencao = intentDetector.detectar(mensagem, contextoCompleto);
+
+      const topicValidator = new TopicValidator(mongo, discoveryService);
+      const validacao = await topicValidator.validarExistenciaConteudo(
+        mensagem,
+        deteccaoIntencao.intencao
+      );
+
+      // Se não tem conteúdo → responder com sugestões
+      if (!validacao.temConteudo && !validacao.bypass) {
+        const resposta = await ai.conversarLivremente(
+          mensagem,
+          contextoCompleto.historico,
+          `${ai.personaEdu}
+
+O usuário perguntou: "${mensagem}"
+
+Você não tem conteúdo específico sobre isso no banco de dados.
+
+Tópicos disponíveis: ${validacao.sugestoes.join(', ')}
+
+Responda de forma amigável e natural:
+1. Informe que não tem esse conteúdo específico
+2. Sugira os tópicos disponíveis
+3. Pergunte qual interessa`
+        );
+
+        conversationManager.adicionarMensagem(
+          currentConversationId,
+          'assistant',
+          resposta,
+          [],
+          {
+            tipo: 'sem_conteudo',
+            sugestoes: validacao.sugestoes,
+            intencaoDetectada: deteccaoIntencao.intencao
+          }
+        );
+
+        return res.json(ResponseFormatter.formatChatResponse(
+          currentConversationId,
+          resposta,
+          [],
+          { tipo: 'sem_conteudo', sugestoes: validacao.sugestoes }
+        ));
+      }
 
       // Registrar intenção detectada na mensagem do usuário
       const conversa = conversationManager.getConversa(currentConversationId);
@@ -300,12 +346,12 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
         );
 
         const { resposta, fragmentos, metadata } = processamento;
-        
+
         const documentosUsados = [...new Set(fragmentos.map(f => f.metadados.arquivo_url))];
         if (documentosUsados.length > 0) {
           conversationManager.registrarDocumentosApresentados(currentConversationId, documentosUsados);
         }
-        
+
         conversationManager.atualizarContextoConversacional(
           currentConversationId,
           mensagem,
@@ -313,7 +359,7 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
           deteccaoIntencao.intencao,
           metadata
         );
-        
+
         conversationManager.adicionarMensagem(
           currentConversationId,
           'assistant',
@@ -321,7 +367,7 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
           fragmentos,
           metadata
         );
-        
+
         return res.json(ResponseFormatter.formatChatResponse(
           currentConversationId,
           resposta,
@@ -341,10 +387,10 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
             fragmentos,
             preferencias
           );
-          
+
           const documentosUsados = [...new Set(fragmentos.map(f => f.metadados.arquivo_url))];
           conversationManager.registrarDocumentosApresentados(currentConversationId, documentosUsados);
-          
+
           conversationManager.atualizarContextoConversacional(
             currentConversationId,
             mensagem,
@@ -352,19 +398,19 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
             'confirmacao',
             { tipo: 'consulta', continuacao_confirmada: true }
           );
-          
+
           conversationManager.adicionarMensagem(
             currentConversationId,
             'assistant',
             resposta,
             fragmentos,
-            { 
-              tipo: 'consulta', 
+            {
+              tipo: 'consulta',
               continuacao_confirmada: true,
               intencaoDetectada: 'confirmacao'
             }
           );
-          
+
           return res.json(ResponseFormatter.formatChatResponse(
             currentConversationId,
             resposta,
@@ -381,7 +427,7 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
           // Buscar mais materiais ou reexplicar
           const queryBusca = `${contextoAtivo.topicoAtual} ${mensagem}`;
           const documentosApresentados = conversationManager.getDocumentosApresentados(currentConversationId);
-          
+
           let fragmentosBrutos = await vectorSearch.buscarFragmentosRelevantes(queryBusca, {}, 15);
           fragmentosBrutos = fragmentosBrutos.filter(f => !documentosApresentados.includes(f.metadados.arquivo_url));
 
@@ -389,17 +435,17 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
             let fragmentosRankeados = smartRanker.rankearPorQualidade(fragmentosBrutos, queryBusca);
             fragmentosRankeados = smartRanker.deduplicarConteudo(fragmentosRankeados);
             const fragmentosFinais = smartRanker.selecionarMelhores(fragmentosRankeados, 3);
-            
+
             const resposta = await ai.responderComContexto(
               `Explique de forma ${deteccaoIntencao.intencao === 'reexplicacao' ? 'mais simples e clara' : 'detalhada com exemplos'} sobre ${contextoAtivo.topicoAtual}: ${mensagem}`,
               contextoCompleto.historico,
               fragmentosFinais,
               { ...preferencias, profundidade: deteccaoIntencao.intencao === 'reexplicacao' ? 'basico' : 'detalhado' }
             );
-            
+
             const documentosUsados = [...new Set(fragmentosFinais.map(f => f.metadados.arquivo_url))];
             conversationManager.registrarDocumentosApresentados(currentConversationId, documentosUsados);
-            
+
             conversationManager.atualizarContextoConversacional(
               currentConversationId,
               mensagem,
@@ -407,19 +453,19 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
               deteccaoIntencao.intencao,
               { tipo: 'consulta', follow_up: true }
             );
-            
+
             conversationManager.adicionarMensagem(
               currentConversationId,
               'assistant',
               resposta,
               fragmentosFinais,
-              { 
-                tipo: 'consulta', 
+              {
+                tipo: 'consulta',
                 follow_up: true,
                 intencaoDetectada: deteccaoIntencao.intencao
               }
             );
-            
+
             return res.json(ResponseFormatter.formatChatResponse(
               currentConversationId,
               resposta,
@@ -441,7 +487,7 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
           // Buscar materiais adequados ao nível
           const queryBusca = `${contextoAtivo.topicoAtual} ${nivel === 'basico' ? 'introdução básico iniciante' : 'avançado técnico'}`;
           const documentosApresentados = conversationManager.getDocumentosApresentados(currentConversationId);
-          
+
           let fragmentosBrutos = await vectorSearch.buscarFragmentosRelevantes(queryBusca, {}, 15);
           fragmentosBrutos = fragmentosBrutos.filter(f => !documentosApresentados.includes(f.metadados.arquivo_url));
 
@@ -449,17 +495,17 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
             let fragmentosRankeados = smartRanker.rankearPorQualidade(fragmentosBrutos, queryBusca);
             fragmentosRankeados = smartRanker.deduplicarConteudo(fragmentosRankeados);
             const fragmentosFinais = smartRanker.selecionarMelhores(fragmentosRankeados, preferenciasAtualizadas.limiteFragmentos || 5);
-            
+
             const resposta = await ai.responderComContexto(
               `Explicar sobre ${contextoAtivo.topicoAtual} para nível ${nivel}`,
               contextoCompleto.historico,
               fragmentosFinais,
               preferenciasAtualizadas
             );
-            
+
             const documentosUsados = [...new Set(fragmentosFinais.map(f => f.metadados.arquivo_url))];
             conversationManager.registrarDocumentosApresentados(currentConversationId, documentosUsados);
-            
+
             conversationManager.atualizarContextoConversacional(
               currentConversationId,
               mensagem,
@@ -467,19 +513,19 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
               'nivel_conhecimento',
               { tipo: 'consulta', nivel_adaptado: nivel }
             );
-            
+
             conversationManager.adicionarMensagem(
               currentConversationId,
               'assistant',
               resposta,
               fragmentosFinais,
-              { 
-                tipo: 'consulta', 
+              {
+                tipo: 'consulta',
                 nivel_adaptado: nivel,
                 intencaoDetectada: 'nivel_conhecimento'
               }
             );
-            
+
             return res.json(ResponseFormatter.formatChatResponse(
               currentConversationId,
               resposta,
@@ -497,7 +543,7 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
           contextoCompleto.historico,
           `${ai.personaEdu}\n\nResponda de forma amigável e natural. Mantenha o contexto da conversa anterior se relevante.`
         );
-        
+
         conversationManager.atualizarContextoConversacional(
           currentConversationId,
           mensagem,
@@ -505,22 +551,22 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
           'casual',
           { tipo: 'casual' }
         );
-        
+
         conversationManager.adicionarMensagem(
-          currentConversationId, 
-          'assistant', 
-          resposta, 
-          [], 
-          { 
+          currentConversationId,
+          'assistant',
+          resposta,
+          [],
+          {
             tipo: 'casual',
             intencaoDetectada: 'casual'
           }
         );
-        
+
         return res.json(ResponseFormatter.formatChatResponse(
-          currentConversationId, 
-          resposta, 
-          [], 
+          currentConversationId,
+          resposta,
+          [],
           { tipo: 'casual' }
         ));
       }
@@ -533,40 +579,40 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
           tipo: mapearTiposParaAmigavel([t.tipo])[0],
           quantidade: t.quantidade
         }));
-        
+
         const topicosComTiposAmigaveis = apresentacao.destaques.map(t => ({
           nome: t.nome,
           tipos_disponiveis: mapearTiposParaAmigavel(t.tipos_disponiveis),
           quantidade: t.quantidade
         }));
-        
+
         const resposta = await ai.apresentarTopicos(topicosComTiposAmigaveis, tiposMaterialAmigaveis, contextoCompleto.historico);
-        
+
         conversationManager.atualizarContextoConversacional(
           currentConversationId,
           mensagem,
           resposta,
           'descoberta',
-          { 
-            tipo: 'descoberta', 
-            topicos: apresentacao.destaques, 
-            categorias: apresentacao.categorias 
+          {
+            tipo: 'descoberta',
+            topicos: apresentacao.destaques,
+            categorias: apresentacao.categorias
           }
         );
-        
+
         conversationManager.adicionarMensagem(
           currentConversationId,
           'assistant',
           resposta,
           [],
-          { 
-            tipo: 'descoberta', 
-            topicos: apresentacao.destaques, 
+          {
+            tipo: 'descoberta',
+            topicos: apresentacao.destaques,
             categorias: apresentacao.categorias,
             intencaoDetectada: 'descoberta'
           }
         );
-        
+
         return res.json(ResponseFormatter.formatDiscoveryResponse(
           currentConversationId,
           resposta,
@@ -579,38 +625,38 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
       if (deteccaoIntencao.intencao === 'interesse_topico') {
         const termoBuscado = deteccaoIntencao.metadados.termoBuscado;
         const topicoInfo = await discoveryService.verificarSeEhTopicoConhecido(termoBuscado);
-        
+
         if (topicoInfo && topicoInfo.encontrado) {
           const tiposAmigaveis = mapearTiposParaAmigavel(topicoInfo.tipos_material);
           const resposta = await ai.gerarEngajamentoTopico(topicoInfo.topico, tiposAmigaveis, contextoCompleto.historico);
-          
+
           conversationManager.atualizarContextoConversacional(
             currentConversationId,
             mensagem,
             resposta,
             'interesse_topico',
-            { 
-              tipo: 'engajamento_topico', 
-              topico: topicoInfo.topico 
+            {
+              tipo: 'engajamento_topico',
+              topico: topicoInfo.topico
             }
           );
-          
+
           conversationManager.adicionarMensagem(
             currentConversationId,
             'assistant',
             resposta,
             [],
-            { 
-              tipo: 'engajamento_topico', 
+            {
+              tipo: 'engajamento_topico',
               topico: topicoInfo.topico,
               intencaoDetectada: 'interesse_topico'
             }
           );
-          
+
           return res.json(ResponseFormatter.formatChatResponse(
-            currentConversationId, 
-            resposta, 
-            [], 
+            currentConversationId,
+            resposta,
+            [],
             { tipo: 'engajamento_topico' }
           ));
         }
@@ -621,13 +667,13 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
         const topicoContexto = deteccaoIntencao.metadados.topico_contexto || contextoCompleto.contextoConversacional?.topicoAtual || '';
         const queryBusca = `${topicoContexto} ${mensagem} continuacao`;
         const documentosApresentados = conversationManager.getDocumentosApresentados(currentConversationId);
-        
+
         let fragmentosBrutos = await vectorSearch.buscarFragmentosRelevantes(queryBusca, {}, 20);
         fragmentosBrutos = fragmentosBrutos.filter(f => !documentosApresentados.includes(f.metadados.arquivo_url));
 
         if (fragmentosBrutos.length === 0) {
           const resposta = `Desculpe, não encontrei mais materiais sobre ${topicoContexto}. Posso te ajudar com outro tópico?`;
-          
+
           conversationManager.atualizarContextoConversacional(
             currentConversationId,
             mensagem,
@@ -635,22 +681,22 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
             'continuacao',
             { tipo: 'sem_resultado' }
           );
-          
+
           conversationManager.adicionarMensagem(
-            currentConversationId, 
-            'assistant', 
-            resposta, 
-            [], 
-            { 
+            currentConversationId,
+            'assistant',
+            resposta,
+            [],
+            {
               tipo: 'sem_resultado',
               intencaoDetectada: 'continuacao'
             }
           );
-          
+
           return res.json(ResponseFormatter.formatChatResponse(
-            currentConversationId, 
-            resposta, 
-            [], 
+            currentConversationId,
+            resposta,
+            [],
             { tipo: 'sem_resultado' }
           ));
         }
@@ -664,7 +710,7 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
 
         if (!analiseRelevancia.temConteudoRelevante) {
           const resposta = `Não encontrei mais conteúdo sobre ${topicoContexto}. Que tal outro tema?`;
-          
+
           conversationManager.atualizarContextoConversacional(
             currentConversationId,
             mensagem,
@@ -672,22 +718,22 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
             'continuacao',
             { tipo: 'sem_resultado' }
           );
-          
+
           conversationManager.adicionarMensagem(
-            currentConversationId, 
-            'assistant', 
-            resposta, 
-            [], 
-            { 
+            currentConversationId,
+            'assistant',
+            resposta,
+            [],
+            {
               tipo: 'sem_resultado',
               intencaoDetectada: 'continuacao'
             }
           );
-          
+
           return res.json(ResponseFormatter.formatChatResponse(
-            currentConversationId, 
-            resposta, 
-            [], 
+            currentConversationId,
+            resposta,
+            [],
             { tipo: 'sem_resultado' }
           ));
         }
@@ -698,10 +744,10 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
           analiseRelevancia.fragmentosRelevantes,
           preferencias
         );
-        
+
         const documentosUsados = [...new Set(analiseRelevancia.fragmentosRelevantes.map(f => f.metadados.arquivo_url))];
         conversationManager.registrarDocumentosApresentados(currentConversationId, documentosUsados);
-        
+
         conversationManager.atualizarContextoConversacional(
           currentConversationId,
           mensagem,
@@ -709,19 +755,19 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
           'continuacao',
           { tipo: 'consulta', continuacao: true }
         );
-        
+
         conversationManager.adicionarMensagem(
           currentConversationId,
           'assistant',
           resposta,
           analiseRelevancia.fragmentosRelevantes,
-          { 
-            tipo: 'consulta', 
+          {
+            tipo: 'consulta',
             continuacao: true,
             intencaoDetectada: 'continuacao'
           }
         );
-        
+
         return res.json(ResponseFormatter.formatChatResponse(
           currentConversationId,
           resposta,
@@ -733,7 +779,7 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
       // --- CONSULTA NORMAL COM CONTEXTO ---
       let queryBusca = mensagem;
       const contextoConv = contextoCompleto.contextoConversacional;
-      
+
       // Usar contexto do tópico atual se relevante
       if (contextoConv?.topicoAtual && deteccaoIntencao.metadados.usar_contexto_historico) {
         queryBusca = `${contextoConv.topicoAtual} ${mensagem}`;
@@ -741,18 +787,18 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
 
       const tipoMidiaSolicitado = dialogueManager.detectarTipoMidiaSolicitado(mensagem);
       const documentosApresentados = conversationManager.getDocumentosApresentados(currentConversationId);
-      
+
       let fragmentosBrutos = await vectorSearch.buscarFragmentosRelevantes(
         queryBusca,
         { tipo: tipoMidiaSolicitado?.tipo, tiposSolicitados: tipoMidiaSolicitado?.filtros },
         20
       );
-      
+
       fragmentosBrutos = fragmentosBrutos.filter(f => !documentosApresentados.includes(f.metadados.arquivo_url));
 
       if (fragmentosBrutos.length === 0) {
         const resposta = `Desculpe, não encontrei materiais relevantes sobre "${mensagem}". Que tal perguntar "o que você pode me ensinar"?`;
-        
+
         conversationManager.atualizarContextoConversacional(
           currentConversationId,
           mensagem,
@@ -760,22 +806,22 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
           'consulta',
           { tipo: 'sem_resultado' }
         );
-        
+
         conversationManager.adicionarMensagem(
-          currentConversationId, 
-          'assistant', 
-          resposta, 
-          [], 
-          { 
+          currentConversationId,
+          'assistant',
+          resposta,
+          [],
+          {
             tipo: 'sem_resultado',
             intencaoDetectada: 'consulta'
           }
         );
-        
+
         return res.json(ResponseFormatter.formatChatResponse(
-          currentConversationId, 
-          resposta, 
-          [], 
+          currentConversationId,
+          resposta,
+          [],
           { tipo: 'sem_resultado' }
         ));
       }
@@ -785,16 +831,16 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
       fragmentosRankeados = smartRanker.agruparChunksContiguos(fragmentosRankeados);
       const maxFragmentos = preferencias?.limiteFragmentos || 5;
       let fragmentosFinais = smartRanker.selecionarMelhores(fragmentosRankeados, maxFragmentos);
-      
+
       let thresholdRelevancia = 0.65;
       if (tipoMidiaSolicitado) thresholdRelevancia = 0.40;
       else if (deteccaoIntencao.metadados.pos_apresentacao) thresholdRelevancia = 0.30;
-      
+
       const analiseRelevancia = contextAnalyzer.analisarRelevancia(fragmentosFinais, thresholdRelevancia);
 
       if (!analiseRelevancia.temConteudoRelevante) {
         const resposta = `Não encontrei conteúdo suficiente sobre "${mensagem}". Posso te ajudar com outro tema!`;
-        
+
         conversationManager.atualizarContextoConversacional(
           currentConversationId,
           mensagem,
@@ -802,28 +848,28 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
           'consulta',
           { tipo: 'sem_resultado' }
         );
-        
+
         conversationManager.adicionarMensagem(
-          currentConversationId, 
-          'assistant', 
-          resposta, 
-          [], 
-          { 
+          currentConversationId,
+          'assistant',
+          resposta,
+          [],
+          {
             tipo: 'sem_resultado',
             intencaoDetectada: 'consulta'
           }
         );
-        
+
         return res.json(ResponseFormatter.formatChatResponse(
-          currentConversationId, 
-          resposta, 
-          [], 
+          currentConversationId,
+          resposta,
+          [],
           { tipo: 'sem_resultado' }
         ));
       }
 
       const documentosAgrupados = contextAnalyzer.agruparPorDocumento(analiseRelevancia.fragmentosRelevantes);
-      
+
       // Oferecer escolha se múltiplos documentos relevantes
       if (documentosAgrupados.length > 1 && !contextoConv?.aguardandoResposta) {
         const opcoes = documentosAgrupados.map(doc => ({
@@ -833,14 +879,14 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
           fragmentos: doc.fragmentos,
           score_medio: doc.score_medio
         }));
-        
+
         const resposta = await ai.apresentarMateriaisContextual(opcoes, contextoCompleto.historico);
-        
-        conversationManager.setMateriaisPendentes(currentConversationId, opcoes, { 
-          mensagem_original: mensagem, 
-          query_usada: queryBusca 
+
+        conversationManager.setMateriaisPendentes(currentConversationId, opcoes, {
+          mensagem_original: mensagem,
+          query_usada: queryBusca
         });
-        
+
         conversationManager.atualizarContextoConversacional(
           currentConversationId,
           mensagem,
@@ -848,30 +894,30 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
           'lista_materiais',
           { tipo: 'lista_materiais', total_opcoes: opcoes.length }
         );
-        
+
         conversationManager.adicionarMensagem(
           currentConversationId,
           'assistant',
           resposta,
           [],
-          { 
-            tipo: 'lista_materiais', 
+          {
+            tipo: 'lista_materiais',
             total_opcoes: opcoes.length,
             intencaoDetectada: 'lista_materiais'
           }
         );
-        
+
         return res.json(ResponseFormatter.formatChatResponse(
           currentConversationId,
           resposta,
           [],
-          { 
-            tipo: 'lista_materiais', 
-            opcoes: opcoes.map((o, i) => ({ 
-              numero: i + 1, 
-              nome: o.arquivo_nome, 
-              tipo: o.tipo 
-            })) 
+          {
+            tipo: 'lista_materiais',
+            opcoes: opcoes.map((o, i) => ({
+              numero: i + 1,
+              nome: o.arquivo_nome,
+              tipo: o.tipo
+            }))
           }
         ));
       }
@@ -883,44 +929,44 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
         analiseRelevancia.fragmentosRelevantes,
         preferencias
       );
-      
+
       const documentosUsados = [...new Set(analiseRelevancia.fragmentosRelevantes.map(f => f.metadados.arquivo_url))];
       conversationManager.registrarDocumentosApresentados(currentConversationId, documentosUsados);
-      
+
       // ATUALIZAR CONTEXTO - Registrar tópico atual
-      const topicoDetectado = intentDetector.extrairTopicoDaMensagem(mensagem).join(' ') || 
-                             contextoConv?.topicoAtual ||
-                             intentDetector.extrairTopicoDeResposta(resposta);
-      
+      const topicoDetectado = intentDetector.extrairTopicoDaMensagem(mensagem).join(' ') ||
+        contextoConv?.topicoAtual ||
+        intentDetector.extrairTopicoDeResposta(resposta);
+
       conversationManager.atualizarContextoConversacional(
         currentConversationId,
         mensagem,
         resposta,
         'consulta',
-        { 
+        {
           tipo: 'consulta',
           topico: topicoDetectado
         }
       );
-      
+
       conversationManager.adicionarMensagem(
         currentConversationId,
         'assistant',
         resposta,
         analiseRelevancia.fragmentosRelevantes,
-        { 
+        {
           tipo: 'consulta',
           topico: topicoDetectado,
           intencaoDetectada: 'consulta'
         }
       );
-      
+
       return res.json(ResponseFormatter.formatChatResponse(
         currentConversationId,
         resposta,
         analiseRelevancia.fragmentosRelevantes,
-        { 
-          tipo: 'consulta', 
+        {
+          tipo: 'consulta',
           scoreMaximo: analiseRelevancia.scoreMaximo,
           topico: topicoDetectado
         }
@@ -928,7 +974,7 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
 
     } catch (error) {
       console.error('Erro no chat:', error);
-      
+
       if (currentConversationId) {
         conversationManager.atualizarContextoConversacional(
           currentConversationId,
@@ -938,7 +984,7 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
           { tipo: 'erro' }
         );
       }
-      
+
       res.status(500).json(ResponseFormatter.formatError(error.message));
     }
   });
