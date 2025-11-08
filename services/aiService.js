@@ -65,50 +65,24 @@ REGRAS ABSOLUTAS:
 HISTÓRICO RECENTE:
 ${historicoResumo || 'Primeira mensagem'}
 
-TÓPICOS DISPONÍVEIS NO BANCO:
-${listaTopicos}
+TÓPICOS DISPONÍVEIS: ${listaTopicos}
 
-MENSAGEM DO USUÁRIO: "${mensagem}"
+ANALISE esta mensagem: "${mensagem}"
 
-REGRAS DE CONVERSAÇÃO NATURAL:
-1. Seja BREVE - máximo 2-3 frases
-2. Se tópico NÃO existe, diga claramente e sugira apenas 2-3 relacionados
-3. NUNCA liste todos os tópicos - seja seletivo
-4. Mantenha continuidade conversacional
-5. Se for exercício, CONTEXTUALIZE antes de apresentar
+DECIDA a ação apropriada baseada no contexto completo da conversa.
 
-EXEMPLOS CORRETOS:
-❌ "Os tópicos disponíveis são: html, css, js, python, java..."
-✅ "Não tenho sobre ferro. Tenho programação web e HTML5. Qual te interessa?"
-
-❌ Jogar exercício direto sem contexto
-✅ "HTML5 é a base da web. Quer que eu explique conceitos ou prefere exercícios?"
-
-ANALISE e responda com JSON válido:
+Responda APENAS com JSON válido:
 
 {
   "acao": "casual" | "descoberta" | "consulta",
   "busca": {
-    "query": "string otimizada para busca vetorial (extraia palavras-chave relevantes)",
-    "tipo_material": "pdf" | "video" | "imagem" | "audio" | null,
-    "tags": ["tag1", "tag2"] ou [],
+    "query": "termos otimizados para busca",
+    "tipo_material": null,
+    "tags": [],
     "limite": 5
   },
-  "resposta_direta": "texto se ação for casual ou descoberta (MÁXIMO 3 FRASES), null se for consulta",
-  "explicacao": "breve justificativa da ação escolhida"
-}
-
-GUIA DE AÇÕES:
-- "casual": saudações, agradecimentos, despedidas → responda diretamente (CURTO)
-- "descoberta": "o que você ensina?", "quais tópicos?" → liste apenas 3-5 tópicos mais relevantes
-- "consulta": perguntas sobre conteúdo específico → buscar no BD e responder
-
-IMPORTANTE: 
-- Responda APENAS com JSON válido, sem markdown
-- Se for "consulta", query deve ser otimizada (ex: "fotossíntese plantas" em vez de "me explique sobre fotossíntese")
-- Se usuário mencionar tipo de material (vídeo, texto, imagem), preencha tipo_material
-- Extraia tags relevantes da mensagem se possível
-- resposta_direta deve ser CONCISA e NATURAL`;
+  "resposta_direta": "texto se for casual/descoberta, null se consulta"
+}`;
 
     try {
       const result = await this.chatModel.generateContent({
@@ -124,7 +98,6 @@ IMPORTANTE:
       
       const parsed = JSON.parse(responseText);
       
-      // Validação básica
       if (!parsed.acao || !['casual', 'descoberta', 'consulta'].includes(parsed.acao)) {
         parsed.acao = 'consulta';
       }
@@ -168,7 +141,6 @@ IMPORTANTE:
       } catch (grokError) {
         console.error('Erro com Grok API:', grokError);
         
-        // Fallback simples
         return {
           acao: 'consulta',
           busca: {
@@ -177,8 +149,7 @@ IMPORTANTE:
             tags: [],
             limite: 5
           },
-          resposta_direta: null,
-          explicacao: 'Fallback por erro em ambas APIs'
+          resposta_direta: null
         };
       }
     }
@@ -206,26 +177,12 @@ ${f.conteudo}
 
     const systemPrompt = `${this.personaEdu}
 
-VOCÊ ESTÁ RESPONDENDO USANDO MATERIAIS DIDÁTICOS:
+MATERIAIS DISPONÍVEIS:
 
 ${contextoPrepared}
 
-INSTRUÇÕES CRÍTICAS:
-1. Use APENAS as informações dos fragmentos acima
-2. NUNCA use seu conhecimento geral
-3. Seja CONCISO - máximo 4-5 frases curtas
-4. Se fragmento for exercício/questão, PRIMEIRO explique o conceito em 1-2 frases, DEPOIS apresente
-5. Cite a fonte: [Nome do documento, pág. X]
-6. Use analogias simples quando possível
-7. Termine perguntando se quer mais detalhes
-
-ESTILO:
-- Frases curtas e objetivas
-- Evite listas longas
-- Contextualize antes de apresentar exercícios
-- Seja conversacional
-
-Responda APENAS baseado nos fragmentos:`;
+Use APENAS as informações dos fragmentos acima.
+Seja conciso e cite as fontes.`;
 
     try {
       const historicoFormatado = historico.slice(-5).map(msg => ({
@@ -271,8 +228,7 @@ Responda APENAS baseado nos fragmentos:`;
   async gerarRespostaCasual(mensagem, historico = []) {
     const prompt = `${this.personaEdu}
 
-Responda esta saudação de forma BREVE e NATURAL (1-2 frases no máximo).
-Seja amigável mas direto. Não liste funcionalidades.
+Responda esta mensagem de forma breve e natural (1-2 frases).
 
 USUÁRIO: ${mensagem}`;
 
@@ -322,7 +278,6 @@ USUÁRIO: ${mensagem}`;
       return 'No momento não há tópicos disponíveis no banco de dados.';
     }
 
-    // Selecionar apenas os 5 tópicos mais relevantes (por quantidade de fragmentos)
     const topicosRelevantes = topicos
       .sort((a, b) => (b.fragmentos || 0) - (a.fragmentos || 0))
       .slice(0, 5)
@@ -334,11 +289,7 @@ USUÁRIO: ${mensagem}`;
 
 Os principais tópicos disponíveis são: ${topicosRelevantes}
 
-Responda em 2 frases:
-1. Liste os tópicos de forma natural
-2. Pergunte qual interessa
-
-Seja CONCISO e conversacional.`;
+Responda em 2 frases listando os tópicos de forma natural e pergunte qual interessa.`;
 
     try {
       const result = await this.chatModel.generateContent({

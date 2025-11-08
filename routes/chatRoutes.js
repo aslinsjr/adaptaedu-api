@@ -17,33 +17,23 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
 
       let currentId = conversationId;
 
-      // Criar conversa se não existir
       if (!currentId || !conversationManager.getConversa(currentId)) {
         currentId = conversationManager.criar();
         
-        // Adicionar mensagem de boas-vindas
         const boasVindas = `Olá! 👋 Sou o Edu, seu assistente educacional.
 
-Trabalho com materiais didáticos específicos do banco de dados. Posso:
+Trabalho com materiais didáticos específicos do banco de dados. Posso mostrar quais tópicos tenho disponíveis ou explicar conteúdos usando os materiais.
 
-📚 Mostrar quais tópicos tenho disponíveis
-💡 Explicar conteúdos usando os materiais
-🎯 Adaptar as explicações ao seu ritmo
-
-Pergunte "o que você ensina?" para ver os tópicos disponíveis, ou faça sua pergunta diretamente!`;
+Pergunte "o que você ensina?" ou faça sua pergunta diretamente!`;
 
         conversationManager.adicionar(currentId, 'assistant', boasVindas, []);
       }
 
-      // Adicionar mensagem do usuário
       conversationManager.adicionar(currentId, 'user', mensagem);
 
       const historico = conversationManager.getHistorico(currentId, 10);
-      
-      // Buscar tópicos disponíveis
       const topicosDisponiveis = await mongo.getAvailableTopics();
 
-      // IA orquestra: analisa mensagem e decide ação
       const orquestracao = await ai.orquestrarMensagem(
         mensagem, 
         historico,
@@ -54,7 +44,6 @@ Pergunte "o que você ensina?" para ver os tópicos disponíveis, ou faça sua p
       let fontes = [];
       let metadata = { acao: orquestracao.acao };
 
-      // Executar ação determinada pela IA
       if (orquestracao.acao === 'casual') {
         resposta = orquestracao.resposta_direta || 
                    await ai.gerarRespostaCasual(mensagem, historico);
@@ -68,7 +57,6 @@ Pergunte "o que você ensina?" para ver os tópicos disponíveis, ou faça sua p
         }));
         
       } else if (orquestracao.acao === 'consulta') {
-        // Buscar fragmentos no BD usando parâmetros extraídos pela IA
         fontes = await vectorSearch.buscar(
           orquestracao.busca.query,
           {
@@ -86,12 +74,10 @@ Os tópicos disponíveis são: ${topicosDisponiveis.slice(0, 5).map(t => t.topic
 Sobre qual deles você gostaria de aprender?`;
           
         } else {
-          // IA formula resposta com fragmentos
           resposta = await ai.responderComFragmentos(mensagem, fontes, historico);
         }
       }
 
-      // Salvar resposta do assistente
       conversationManager.adicionar(currentId, 'assistant', resposta, fontes);
 
       return res.json(
