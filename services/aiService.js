@@ -67,16 +67,14 @@ ${historicoResumo || 'Primeira mensagem'}
 
 TÓPICOS DISPONÍVEIS: ${listaTopicos}
 
-ANALISE esta mensagem: "${mensagem}"
+ANALISE: "${mensagem}"
 
-DECIDA a ação apropriada baseada no contexto completo da conversa.
-
-Responda APENAS com JSON válido:
+Responda APENAS com JSON:
 
 {
   "acao": "casual" | "descoberta" | "consulta",
   "busca": {
-    "query": "termos otimizados para busca",
+    "query": "termos para busca",
     "tipo_material": null,
     "tags": [],
     "limite": 5
@@ -156,114 +154,86 @@ Responda APENAS com JSON válido:
   }
 
   async responderComFragmentos(mensagem, fragmentos, historico = []) {
-  if (!fragmentos || fragmentos.length === 0) {
-    return 'Não encontrei materiais relevantes sobre esse tema. Tente perguntar "o que você ensina?" para ver os tópicos disponíveis.';
-  }
+    if (!fragmentos || fragmentos.length === 0) {
+      return 'Não tenho materiais sobre esse tema no momento. Quer ver os tópicos disponíveis?';
+    }
 
-  const contextoPrepared = fragmentos.map((f, i) => {
-    const loc = f.metadados?.localizacao;
-    const tipo = f.metadados?.tipo || 'material';
-    
-    return `
-┌─── Fonte ${i + 1} [${tipo}] ───┐
+    const contextoPrepared = fragmentos.map((f, i) => {
+      const loc = f.metadados?.localizacao;
+      
+      return `
+FONTE ${i + 1}:
 Documento: ${f.metadados?.arquivo_nome || 'Desconhecido'}
-Localização: Pág. ${loc?.pagina || 'N/A'}${loc?.secao ? `, Seção ${loc.secao}` : ''}
+Página: ${loc?.pagina || 'N/A'}
 
 CONTEÚDO:
 ${f.conteudo}
-└────────────────────────────────┘
 `;
-  }).join('\n');
+    }).join('\n');
 
-  const systemPrompt = `${this.personaEdu}
+    const systemPrompt = `${this.personaEdu}
 
-MATERIAIS DISPONÍVEIS:
+MATERIAIS:
 
 ${contextoPrepared}
 
-INSTRUÇÕES PARA RESPOSTA:
-1. Use APENAS as informações dos fragmentos acima
-2. Seja CONCISO - máximo 3-4 frases principais
-3. Destaque apenas os pontos mais relevantes
-4. Cite as fontes no final
-5. SEMPRE finalize com uma pergunta engajadora sobre o conteúdo
-
-FORMATO DA RESPOSTA:
-- 2-3 frases explicando o conceito principal
-- 1-2 frases com exemplos ou aplicações práticas
-- Citação das fontes
-- Pergunta final para engajar o usuário
+INSTRUÇÕES:
+- Use APENAS informações dos fragmentos
+- Seja DIRETO (máximo 3 frases)
+- Destaque o essencial
+- Cite fontes brevemente
+- FINALIZE com pergunta engajadora
 
 EXEMPLOS DE PERGUNTAS FINAIS:
-- "Fez sentido? Quer que eu detalhe algum ponto específico?"
-- "Entendeu a ideia? Posso mostrar exemplos práticos?"
-- "Como está seu entendimento? Quer explorar mais algum aspecto?"
-- "Te interessa ver aplicações práticas ou prefere mais teoria?"
+- "Quer que eu detalhe mais algum ponto?"
+- "Te interessa ver exemplos práticos?"
+- "Ficou alguma dúvida sobre o conteúdo?"
+- "Quer explorar mais algum aspecto?"
 
-Use APENAS as informações dos fragmentos.`;
+Responda de forma CONVERSAcional:`;
 
-  try {
-    const historicoFormatado = historico.slice(-5).map(msg => ({
-      role: msg.role === 'user' ? 'user' : 'model',
-      parts: [{ text: msg.content }]
-    }));
-
-    const result = await this.chatModel.generateContent({
-      contents: [
-        ...historicoFormatado,
-        { role: 'user', parts: [{ text: `${systemPrompt}\n\nPERGUNTA: ${mensagem}` }] }
-      ],
-      generationConfig: { 
-        temperature: 0.7,
-        maxOutputTokens: 1024
-      }
-    });
-
-    return result.response.text();
-
-  } catch (error) {
-    console.error('Erro ao gerar resposta com Google, tentando Grok:', error);
-    
     try {
-      const messages = [
-        { role: 'system', content: systemPrompt },
-        ...historico.slice(-5).map(msg => ({ 
-          role: msg.role === 'user' ? 'user' : 'assistant', 
-          content: msg.content 
-        })),
-        { role: 'user', content: `PERGUNTA: ${mensagem}` }
-      ];
+      const result = await this.chatModel.generateContent({
+        contents: [{ role: 'user', parts: [{ text: `${systemPrompt}\n\nPERGUNTA: ${mensagem}` }] }],
+        generationConfig: { 
+          temperature: 0.7,
+          maxOutputTokens: 512
+        }
+      });
+
+      return result.response.text();
+
+    } catch (error) {
+      console.error('Erro ao gerar resposta com Google, tentando Grok:', error);
       
-      return await this._callGrokAPI(messages, 0.7, 1024);
-      
-    } catch (grokError) {
-      console.error('Erro com Grok API:', grokError);
-      return 'Desculpe, ocorreu um erro ao processar os materiais. Tente reformular sua pergunta.';
+      try {
+        const messages = [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: `PERGUNTA: ${mensagem}` }
+        ];
+        
+        return await this._callGrokAPI(messages, 0.7, 512);
+        
+      } catch (grokError) {
+        console.error('Erro com Grok API:', grokError);
+        return 'Desculpe, ocorreu um erro ao processar os materiais. Tente reformular sua pergunta.';
+      }
     }
   }
-}
 
   async gerarRespostaCasual(mensagem, historico = []) {
     const prompt = `${this.personaEdu}
 
-Responda esta mensagem de forma breve e natural (1-2 frases).
+Responda de forma DIRETA (1-2 frases) e finalize com pergunta engajadora.
 
 USUÁRIO: ${mensagem}`;
 
     try {
-      const historicoFormatado = historico.slice(-3).map(msg => ({
-        role: msg.role === 'user' ? 'user' : 'model',
-        parts: [{ text: msg.content }]
-      }));
-
       const result = await this.chatModel.generateContent({
-        contents: [
-          ...historicoFormatado,
-          { role: 'user', parts: [{ text: prompt }] }
-        ],
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
         generationConfig: { 
           temperature: 0.8,
-          maxOutputTokens: 300
+          maxOutputTokens: 200
         }
       });
 
@@ -273,48 +243,40 @@ USUÁRIO: ${mensagem}`;
       console.error('Erro na resposta casual com Google, tentando Grok:', error);
       
       try {
-        const messages = [
-          { role: 'system', content: prompt },
-          ...historico.slice(-3).map(msg => ({ 
-            role: msg.role === 'user' ? 'user' : 'assistant', 
-            content: msg.content 
-          })),
-          { role: 'user', content: mensagem }
-        ];
-        
-        return await this._callGrokAPI(messages, 0.8, 300);
+        const messages = [{ role: 'user', content: prompt }];
+        return await this._callGrokAPI(messages, 0.8, 200);
         
       } catch (grokError) {
         console.error('Erro com Grok API:', grokError);
-        return 'Olá! Como posso te ajudar com os materiais didáticos hoje?';
+        return 'Como posso te ajudar com os materiais hoje?';
       }
     }
   }
 
   async listarTopicos(topicos, historico = []) {
     if (!topicos || topicos.length === 0) {
-      return 'No momento não há tópicos disponíveis no banco de dados.';
+      return 'Sem tópicos disponíveis no momento.';
     }
 
     const topicosRelevantes = topicos
       .sort((a, b) => (b.fragmentos || 0) - (a.fragmentos || 0))
-      .slice(0, 5)
+      .slice(0, 8)
       .map(t => t.nome || t.topico)
       .filter(Boolean)
       .join(', ');
 
     const prompt = `${this.personaEdu}
 
-Os principais tópicos disponíveis são: ${topicosRelevantes}
+Tópicos disponíveis: ${topicosRelevantes}
 
-Responda em 2 frases listando os tópicos de forma natural e pergunte qual interessa.`;
+Responda em 1-2 frases listando os principais e pergunte qual interessa. Seja direto.`;
 
     try {
       const result = await this.chatModel.generateContent({
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
         generationConfig: { 
           temperature: 0.7,
-          maxOutputTokens: 200
+          maxOutputTokens: 150
         }
       });
 
@@ -325,11 +287,11 @@ Responda em 2 frases listando os tópicos de forma natural e pergunte qual inter
       
       try {
         const messages = [{ role: 'user', content: prompt }];
-        return await this._callGrokAPI(messages, 0.7, 200);
+        return await this._callGrokAPI(messages, 0.7, 150);
         
       } catch (grokError) {
         console.error('Erro com Grok API:', grokError);
-        return `Tenho materiais sobre: ${topicosRelevantes}. Qual te interessa?`;
+        return `Tenho materiais sobre: ${topicosRelevantes.split(',').slice(0, 5).join(', ')}. Qual te interessa?`;
       }
     }
   }
