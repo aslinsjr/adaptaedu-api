@@ -3,30 +3,17 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import { MongoService } from './services/mongoClient.js';
-import { FirebaseService } from './services/firebaseClient.js';
 import { AIService } from './services/aiService.js';
 import { VectorSearchService } from './services/vectorSearchService.js';
 import { ConversationManager } from './services/conversationManager.js';
-import { TextReconstructor } from './utils/textReconstructor.js';
 import { createChatRoutes } from './routes/chatRoutes.js';
-import { createDocumentRoutes } from './routes/documentRoutes.js';
-import { createSearchRoutes } from './routes/searchRoutes.js';
 
 const app = express();
 
-// Configuração UTF-8
-app.use(express.json({ 
-  limit: '10mb',
-  verify: (req, res, buf, encoding) => {
-    if (buf && buf.length) {
-      req.rawBody = buf.toString('utf8');
-    }
-  }
-}));
+app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cors());
 
-// Set UTF-8 for responses
 app.use((req, res, next) => {
   res.charset = 'utf-8';
   res.set('Content-Type', 'application/json; charset=utf-8');
@@ -34,7 +21,6 @@ app.use((req, res, next) => {
 });
 
 const mongo = new MongoService();
-const firebase = new FirebaseService();
 const ai = new AIService();
 const conversationManager = new ConversationManager();
 
@@ -42,12 +28,8 @@ await mongo.connect();
 console.log('✓ Conectado ao MongoDB');
 
 const vectorSearch = new VectorSearchService(mongo, ai);
-const textReconstructor = new TextReconstructor(mongo);
 
-// Passar todas as dependências necessárias
 app.use('/api', createChatRoutes(vectorSearch, ai, conversationManager, mongo));
-app.use('/api', createDocumentRoutes(mongo, textReconstructor, vectorSearch));
-app.use('/api', createSearchRoutes(vectorSearch));
 
 app.get('/health', (req, res) => {
   res.json({
@@ -57,16 +39,15 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Limpar conversas antigas a cada 24 horas
 setInterval(() => {
-  conversationManager.limparConversasAntigas(24);
+  conversationManager.limparAntigas(24);
 }, 60 * 60 * 1000);
 
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
   console.log(`✓ Chat RAG API rodando na porta ${PORT}`);
   console.log(`✓ Health check: http://localhost:${PORT}/health`);
-  console.log(`✓ Modo: Backend inicia com saudação do Edu e analisa primeira resposta do usuário`);
+  console.log(`✓ Modo: IA orquestra todo o fluxo`);
 });
 
 process.on('SIGINT', async () => {
