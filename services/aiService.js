@@ -119,9 +119,9 @@ ${contextoPrepared}
 2. Destaque os pontos principais de maneira organizada
 3. Mantenha a resposta concisa (3-4 frases no máximo)
 4. Relacione o conteúdo com exemplos práticos quando possível
-5. Ao final, faça uma pergunta reflexiva ou incentive a exploração do tema
+5. Adicione as fontes dos materias consultados se houverem
 6. Separe blocos de frases e pule linhas para organizar a exibição
-7. Adicione as fontes dos materias consultados se houverem em tamanho menor
+7. Ao final, faça uma pergunta reflexiva ou incentive a exploração do tema
 
 Baseie sua resposta nos materiais fornecidos, mas explique como um tutor faria.
 
