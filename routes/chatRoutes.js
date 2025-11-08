@@ -20,11 +20,9 @@ export function createChatRoutes(vectorSearch, ai, conversationManager, mongo) {
       if (!currentId || !conversationManager.getConversa(currentId)) {
         currentId = conversationManager.criar();
         
-        const boasVindas = `Olá! Sou o Edu, seu assistente educacional.
+        const boasVindas = `Olá! Posso mostrar os tópicos disponíveis ou explicar conteúdos específicos.
 
-Trabalho com materiais didáticos do banco de dados. Posso mostrar os tópicos disponíveis ou explicar conteúdos específicos.
-
-O que gostaria de aprender hoje?`;
+O que gostaria de aprender?`;
 
         conversationManager.adicionar(currentId, 'assistant', boasVindas, []);
       }
@@ -34,54 +32,16 @@ O que gostaria de aprender hoje?`;
       const historico = conversationManager.getHistorico(currentId, 10);
       const topicosDisponiveis = await mongo.getAvailableTopics();
 
-      const orquestracao = await ai.orquestrarMensagem(
-        mensagem, 
-        historico,
-        topicosDisponiveis
-      );
+      // Buscar fragmentos relevantes para a mensagem
+      const fragmentos = await vectorSearch.buscar(mensagem, {}, 5);
+      
+      // IA gera resposta diretamente - SEM CLASSIFICAÇÃO OU ORQUESTRAÇÃO
+      const resposta = await ai.gerarResposta(mensagem, fragmentos, historico, topicosDisponiveis);
 
-      let resposta = '';
-      let fontes = [];
-      let metadata = { acao: orquestracao.acao };
-
-      if (orquestracao.acao === 'casual') {
-        resposta = orquestracao.resposta_direta || 
-                 await ai.gerarRespostaCasual(mensagem, historico);
-        
-      } else if (orquestracao.acao === 'descoberta') {
-        resposta = orquestracao.resposta_direta || 
-                 await ai.listarTopicos(topicosDisponiveis, historico);
-        metadata.topicos = topicosDisponiveis.slice(0, 10).map(t => ({
-          nome: t.topico,
-          quantidade: t.fragmentos
-        }));
-        
-      } else if (orquestracao.acao === 'consulta') {
-        fontes = await vectorSearch.buscar(
-          orquestracao.busca.query,
-          {
-            tipo_material: orquestracao.busca.tipo_material,
-            tags: orquestracao.busca.tags
-          },
-          orquestracao.busca.limite
-        );
-
-        if (fontes.length === 0) {
-          resposta = `Não encontrei materiais sobre "${orquestracao.busca.query}".
-
-Tenho: ${topicosDisponiveis.slice(0, 5).map(t => t.topico).join(', ')}.
-
-Qual te interessa?`;
-          
-        } else {
-          resposta = await ai.responderComFragmentos(mensagem, fontes, historico);
-        }
-      }
-
-      conversationManager.adicionar(currentId, 'assistant', resposta, fontes);
+      conversationManager.adicionar(currentId, 'assistant', resposta, fragmentos);
 
       return res.json(
-        ResponseFormatter.formatChatResponse(currentId, resposta, fontes, metadata)
+        ResponseFormatter.formatChatResponse(currentId, resposta, fragmentos, {})
       );
 
     } catch (error) {
