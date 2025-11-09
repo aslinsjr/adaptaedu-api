@@ -64,7 +64,7 @@ TÓPICOS DISPONÍVEIS: ${topicosStr}
 Responda à mensagem do usuário de forma natural e concisa (2-3 frases).
 
 Se for pergunta sobre o que pode ensinar, liste alguns tópicos principais.
-Se for saudação, responda brevemente.
+Caso seja uma saudação, responda brevemente, caso contrário não precisa de saudação na resposta.
 Se for pergunta sobre conteúdo, diga que precisa de materiais específicos.
 
 Sempre finalize engajando o usuário.
@@ -115,14 +115,15 @@ ${f.conteudo}
 ${contextoPrepared}
 
 **INSTRUÇÕES:**
-1. Explique o conceito usando SUAS PRÓPRIAS PALAVRAS, de forma clara e acessível
-2. Destaque os pontos principais de maneira organizada
-3. Mantenha a resposta concisa (3-4 frases no máximo)
-4. Relacione o conteúdo com exemplos práticos quando possível
-5. Ao final, faça uma pergunta reflexiva ou incentive a exploração do tema
-6. Separe blocos de frases e pule linhas para organizar a exibição
-
-Baseie sua resposta somente nos materiais fornecidos, mas explique como um tutor faria. Caso não haja material informe ao usuário quais tópicos possue no material.
+1. Sempre baseie sua resposta somente nos materiais fornecidos
+2. Caso não haja material informe ao usuário educadamente, e sugira algum dos tópicos disponíveis no material
+3. Não precisa de saudação, mas caso haja contexto anterior, procure retomar a conversa
+4. Explique o conceito usando SUAS PRÓPRIAS PALAVRAS, de forma clara e acessível
+5. Destaque os pontos principais de maneira organizada
+6. Mantenha a resposta concisa (3-4 frases no máximo)
+7. Relacione o conteúdo com exemplos práticos quando possível
+8. Separe blocos de frases e pule linhas para organizar a exibição
+9. Ao final, faça uma pergunta reflexiva ou incentive a exploração do tema
 
 PERGUNTA DO ALUNO: ${mensagem}`;
 
