@@ -31,6 +31,22 @@ const vectorSearch = new VectorSearchService(mongo, ai);
 
 app.use('/api', createChatRoutes(vectorSearch, ai, conversationManager, mongo));
 
+app.get('/', (req, res) => {
+  res.json({
+    nome: 'AdaptaEdu API',
+    versao: '1.0.0',
+    descricao: 'Sistema educacional com busca semântica em documentos',
+    endpoints: {
+      chat: 'POST /api/chat',
+      conversa: 'GET /api/conversas/:id',
+      excluir: 'DELETE /api/conversas/:id',
+      health: 'GET /health'
+    },
+    status: 'online',
+    timestamp: new Date()
+  });
+});
+
 app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
